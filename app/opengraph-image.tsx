@@ -30,7 +30,7 @@ export default function OG() {
             Your whole trip, planned to the minute.
           </div>
           <div style={{ fontSize: 30, color: "#15110c", opacity: 0.6, maxWidth: 900 }}>
-            Hotels by the station · no train over 2 hours · on your budget · a real plan in seconds.
+            Stays in the right spots · no exhausting travel days · on your budget · anywhere in the world.
           </div>
         </div>
         <div style={{ display: "flex", gap: 14 }}>

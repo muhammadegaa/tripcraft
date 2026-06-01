@@ -17,12 +17,12 @@ import {
 } from "@/lib/itinerary";
 
 const TEMPLATES = [
-  { label: "🍜 Japan food trip", prompt: "10 days in Japan in November, 2 people, IDR 45M budget. We're obsessed with food: ramen, sushi, izakaya, markets. Hotels walkable to train stations, no transit leg over 2 hours." },
-  { label: "🌸 Cherry blossom", prompt: "8 days in Japan in late March for cherry blossoms, 2 people, IDR 40M. We love gardens, temples, and street food. Hotels near stations, no train over 2 hours." },
-  { label: "👨‍👩‍👧 Family Japan", prompt: "7 days in Tokyo and nearby, family of 4 with two kids (6 and 9), IDR 60M. Theme parks, easy relaxed days, kid-friendly food. Hotels right by a station, only short transit." },
-  { label: "🏝️ Bali reset", prompt: "6 days in Bali, 2 people, IDR 20M. Beaches, cafes, yoga, sunsets. Relaxed pace, nice stays close to the action, no long drives." },
-  { label: "🇰🇷 Seoul 5 days", prompt: "5 days in Seoul, 2 people, IDR 25M. Korean BBQ, cafes, shopping, palaces. Hotels near the subway, no long transfers." },
-  { label: "🎒 Budget backpack", prompt: "12 days across Japan on a tight budget, 1 person, IDR 25M. Hostels near stations, cheap eats, free sights, no transit over 2 hours." },
+  { label: "🇮🇹 Italy, art & coast", prompt: "10 days in Italy in May, 2 people, around €4,500. Rome, Florence, then the Amalfi coast. We love art, long lunches, and walkable old towns. No more than one big move every three days." },
+  { label: "🇯🇵 Japan, food & rail", prompt: "14 days in Japan in November, 2 people, around $4,500. We live for food: ramen, sushi, markets. Hotels a short walk from the station, and no train ride over 2 hours." },
+  { label: "🇹🇭 Thailand islands", prompt: "9 days in Thailand, a couple, about $2,500. Two nights in Bangkok, then island-hopping. Beaches, street food, easy ferries, no early-morning flights." },
+  { label: "🇵🇹 Portugal road trip", prompt: "8 days in Portugal in spring, 2 people, around €3,000. Lisbon, Sintra, and the Algarve by car. Seafood, viewpoints, walkable towns, no drive over 2 hours." },
+  { label: "🇰🇷 Seoul + Busan", prompt: "6 days in South Korea, 2 friends, about $1,800. Seoul then Busan by KTX. Korean BBQ, cafes, palaces, hotels right by the subway." },
+  { label: "👨‍👩‍👧 Family Europe", prompt: "7 days in Europe with two kids (6 and 9), around €6,000. Easy pace, a castle or a theme park, kid-friendly food, central hotels, short transfers only." },
 ];
 const MOCK_DAY = 3;
 const MOCK_NOW = "11:05";
@@ -347,7 +347,7 @@ function Nav({ live }: { live: boolean }) {
   return (
     <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
       <div className="flex items-center gap-2 font-semibold tracking-tight">
-        <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e8643c] text-white">◐</span>
+        <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e8643c] text-sm font-bold text-white">{config.brandName.charAt(0)}</span>
         {config.brandName}
       </div>
       <span className="flex items-center gap-1.5 rounded-full border border-[#15110c]/10 bg-white px-3 py-1 text-xs font-medium text-[#15110c]/70">
@@ -362,12 +362,12 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
   const canImprove = input.trim().length >= 3 && !improving;
   return (
     <section className="mx-auto max-w-3xl px-6 pb-10 pt-10 text-center">
-      <p className="mb-4 text-sm font-medium text-[#e8643c] animate-rise">Constraint-perfect trip planning · booking opens soon</p>
-      <h1 className="text-balance text-4xl font-semibold leading-tight tracking-tight sm:text-5xl animate-rise">
-        Your whole Japan trip,<br />planned to the minute.
+      <p className="mb-4 text-sm font-medium text-[#e8643c] animate-rise">Plan any trip, anywhere, in plain words</p>
+      <h1 className="text-balance text-4xl font-semibold leading-tight tracking-tight sm:text-[3.4rem] sm:leading-[1.05] animate-rise">
+        Your whole trip,<br />planned to the minute.
       </h1>
       <p className="mx-auto mt-5 max-w-xl text-balance text-lg text-[#15110c]/65 animate-rise">
-        Describe your trip in plain words. We build a real day-by-day plan: hotels you can walk to the station from, no train over 2 hours, all on your budget. Reserve now and you&apos;re first to book it when we open.
+        Tell us where you&apos;re headed, however you&apos;d say it out loud. We turn it into a real day-by-day plan that holds up: stays in the right neighbourhoods, no exhausting travel days, every booking inside your budget. Reserve now and you&apos;re first to book it when we open.
       </p>
 
       <div className="mt-7 animate-rise">
@@ -385,7 +385,7 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="…or describe your own: 10 days in Japan, 2 people, IDR 40M, love ramen and onsen, hotels walkable to stations, no train over 2 hours"
+          placeholder="…or describe your own: 12 days in Portugal, 2 people, €3k, love seafood and clifftop views, walkable towns, no drive over 2 hours"
           rows={4}
           className="w-full resize-none rounded-xl bg-transparent p-3 text-left text-[15px] outline-none placeholder:text-[#15110c]/35"
         />
@@ -399,9 +399,9 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
       <p className="mt-3 text-xs text-[#15110c]/45 animate-rise">New here? Pick a template, then hit <span className="font-medium text-[#15110c]/70">✨ Improve</span> to shape it, or just type and go.</p>
 
       <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[#15110c]/50 animate-rise">
-        <span>✓ A real plan in ~20 seconds</span>
-        <span>✓ Every train under 2 hours</span>
-        <span>✓ First access to book it</span>
+        <span>✓ A real plan in seconds</span>
+        <span>✓ Built around your rules</span>
+        <span>✓ Anywhere in the world</span>
       </div>
     </section>
   );
@@ -455,8 +455,8 @@ function Plan({ trip, days, onDirections, onCommit, onReserve, onRestart }: {
       <h2 className="text-3xl font-semibold tracking-tight animate-rise">{trip.days} days in {trip.destination}</h2>
       <p className="mt-2 text-[#15110c]/60 animate-rise">{trip.party} travellers · {trip.budget} · {trip.interests}</p>
       <div className="mt-5 flex flex-wrap gap-2 animate-rise">
-        <Badge>✓ {days.length} nights near stations</Badge>
-        <Badge>✓ {legs} legs, none over 2h</Badge>
+        <Badge>✓ {days.length} nights, stays in the right spots</Badge>
+        <Badge>✓ {legs} travel legs, all kept short</Badge>
         <Badge>✓ Door-to-door directions</Badge>
       </div>
       <ol className="stagger mt-8 space-y-4">
@@ -895,12 +895,12 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 function HowItWorks() {
   const steps = [
-    ["Tell us in plain words", "Dates, budget, who's coming, your dealbreakers. No forms."],
-    ["We plan the whole thing", "Hotels by the station, every train under 2 hours, balanced to your budget, door to door."],
-    ["Reserve and book first", "Save your plan and get early access to book it all in-app, then a live guide for each day."],
+    ["Tell us in plain words", "Where you're going, your dates, budget, who's coming, your dealbreakers. No forms."],
+    ["We plan the whole thing", "Stays in the right neighbourhoods, no exhausting travel days, every booking inside your budget. Door to door."],
+    ["Reserve and book first", "Save your plan and get early access to book it all in-app, then a guide that travels with you."],
   ];
   return (
-    <section className="mx-auto max-w-3xl px-6 py-16">
+    <section id="how" className="mx-auto max-w-3xl px-6 py-16">
       <h2 className="text-center text-sm font-medium uppercase tracking-wide text-[#15110c]/40">How it works</h2>
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         {steps.map(([t, d], i) => (
@@ -916,5 +916,16 @@ function HowItWorks() {
 }
 
 function Footer() {
-  return <footer className="mx-auto max-w-5xl px-6 py-10 text-center text-xs text-[#15110c]/40">{config.brandName}. Trips that respect the rules you actually care about.</footer>;
+  return (
+    <footer className="mt-8 border-t border-[#15110c]/8">
+      <div className="mx-auto flex max-w-5xl flex-col items-center gap-3 px-6 py-12 text-center">
+        <div className="flex items-center gap-2 font-semibold tracking-tight">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e8643c] text-sm font-bold text-white">{config.brandName.charAt(0)}</span>
+          {config.brandName}
+        </div>
+        <p className="max-w-sm text-sm text-[#15110c]/55">Describe any trip and get a plan that respects the rules you actually care about. Anywhere in the world.</p>
+        <p className="mt-2 text-xs text-[#15110c]/35">© 2026 {config.brandName}</p>
+      </div>
+    </footer>
+  );
 }

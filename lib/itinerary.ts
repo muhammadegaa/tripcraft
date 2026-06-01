@@ -86,8 +86,8 @@ export function generate(trip: Trip): Day[] {
 
 export const GENERATING_STEPS = [
   "Reading your must-haves and deal-breakers…",
-  "Pinning hotels within a 5-minute walk of a station…",
-  "Booking transport so no train runs over 2 hours…",
+  "Placing you in the right neighbourhood each night…",
+  "Keeping every travel leg short and sane…",
   "Keeping the whole trip inside your budget…",
   "Routing each day door-to-door with directions…",
   "Double-checking opening days and seasonal closures…",
