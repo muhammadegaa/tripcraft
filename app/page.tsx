@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { config } from "@/lib/config";
 import { burstConfetti } from "@/lib/confetti";
 import { saveTrip, saveLead } from "@/lib/firebase";
+import { track as vaTrack } from "@vercel/analytics";
 import {
   parseTrip,
   generate,
@@ -47,10 +48,9 @@ function profileToText(p: Profile | null): string {
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function track(event: string, data?: Record<string, unknown>) {
+  // Vercel Analytics custom events — queryable in the Analytics tab (prod only).
   try {
-    const body = JSON.stringify({ event, data });
-    if (navigator.sendBeacon) navigator.sendBeacon("/api/track", body);
-    else fetch("/api/track", { method: "POST", body, keepalive: true });
+    vaTrack(event, data as Record<string, string | number | boolean | null>);
   } catch {
     /* no-op */
   }
@@ -200,8 +200,18 @@ export default function Page() {
       tripId,
       status: "reserved",
     });
-    track("reserved", { persisted, destination: trip?.destination });
+    track("reserved", { persisted, destination: trip?.destination ?? "" });
     saveTrip(tripId, { status: "reserved", leadEmail: email.toLowerCase() });
+    // Send the traveler their plan (server-side via Resend). Fire-and-forget.
+    try {
+      fetch("/api/reserve-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, destination: trip?.destination, days }),
+      });
+    } catch {
+      /* email is best-effort; the lead is already saved */
+    }
     setReservedEmail(email);
     setReserveOpen(false);
     setPhase("reserved");

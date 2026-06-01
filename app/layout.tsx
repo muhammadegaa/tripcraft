@@ -12,6 +12,7 @@ const description =
   "Describe your trip in plain words and get a real day-by-day plan: hotels by the station, no train over 2 hours, all on your budget. Reserve early access to book it in-app, with a live guide for every day.";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://tripcraft.vercel.app"),
   title,
   description,
   openGraph: {
