@@ -17,8 +17,14 @@ import {
   type Stop,
 } from "@/lib/itinerary";
 
-const EXAMPLE =
-  "14 days in Japan in November, 3 people, IDR 65M budget. We love food, want hotels near train stations, and no transit leg over 2 hours.";
+const TEMPLATES = [
+  { label: "🍜 Japan food trip", prompt: "10 days in Japan in November, 2 people, IDR 45M budget. We're obsessed with food — ramen, sushi, izakaya, markets. Hotels walkable to train stations, no transit leg over 2 hours." },
+  { label: "🌸 Cherry blossom", prompt: "8 days in Japan in late March for cherry blossoms, 2 people, IDR 40M. We love gardens, temples, and street food. Hotels near stations, no train over 2 hours." },
+  { label: "👨‍👩‍👧 Family Japan", prompt: "7 days in Tokyo and nearby, family of 4 with two kids (6 and 9), IDR 60M. Theme parks, easy relaxed days, kid-friendly food. Hotels right by a station, only short transit." },
+  { label: "🏝️ Bali reset", prompt: "6 days in Bali, 2 people, IDR 20M. Beaches, cafes, yoga, sunsets. Relaxed pace, nice stays close to the action, no long drives." },
+  { label: "🇰🇷 Seoul 5 days", prompt: "5 days in Seoul, 2 people, IDR 25M. Korean BBQ, cafes, shopping, palaces. Hotels near the subway, no long transfers." },
+  { label: "🎒 Budget backpack", prompt: "12 days across Japan on a tight budget, 1 person, IDR 25M. Hostels near stations, cheap eats, free sights, no transit over 2 hours." },
+];
 const MOCK_DAY = 3;
 const MOCK_NOW = "11:05";
 
@@ -73,6 +79,7 @@ export default function Page() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
+  const [improving, setImproving] = useState(false);
   const idRef = useRef(1);
   const nextId = () => idRef.current++;
 
@@ -101,6 +108,29 @@ export default function Page() {
       return next;
     });
     if (toast) pushToast(toast, "✓");
+  }
+
+  async function improveBrief() {
+    const text = input.trim();
+    if (text.length < 3 || improving) return;
+    setImproving(true);
+    track("improve_used");
+    try {
+      const res = await fetch("/api/improve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: text }),
+      });
+      const data = await res.json();
+      if (data?.improved) {
+        setInput(data.improved);
+        pushToast("✨ Sharpened your trip brief — tweak anything", "✨");
+      }
+    } catch {
+      /* leave input as-is */
+    } finally {
+      setImproving(false);
+    }
   }
 
   async function handleGenerate() {
@@ -248,7 +278,7 @@ export default function Page() {
 
       {phase === "input" && (
         <div className="animate-fade">
-          <Hero input={input} setInput={setInput} onGenerate={handleGenerate} onExample={() => setInput(EXAMPLE)} />
+          <Hero input={input} setInput={setInput} onGenerate={handleGenerate} onImprove={improveBrief} improving={improving} />
           <HowItWorks />
         </div>
       )}
@@ -311,7 +341,8 @@ function Nav({ live }: { live: boolean }) {
   );
 }
 
-function Hero({ input, setInput, onGenerate, onExample }: { input: string; setInput: (s: string) => void; onGenerate: () => void; onExample: () => void }) {
+function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: string; setInput: (s: string) => void; onGenerate: () => void; onImprove: () => void; improving: boolean }) {
+  const canImprove = input.trim().length >= 3 && !improving;
   return (
     <section className="mx-auto max-w-3xl px-6 pb-10 pt-10 text-center">
       <p className="mb-4 text-sm font-medium text-[#e8643c] animate-rise">Plan it, book it, then we guide you through it</p>
@@ -321,19 +352,45 @@ function Hero({ input, setInput, onGenerate, onExample }: { input: string; setIn
       <p className="mx-auto mt-5 max-w-xl text-balance text-lg text-[#15110c]/65 animate-rise">
         Hotels by the station, trains that never run over 2 hours, every ticket booked inside the app. Then a live guide that knows where you are and what&apos;s next. Miss a rule, get your money back.
       </p>
-      <div className="mt-8 rounded-2xl border border-[#15110c]/10 bg-white p-3 shadow-[0_1px_0_rgba(0,0,0,0.03),0_18px_50px_-18px_rgba(0,0,0,0.22)] animate-rise">
+
+      {/* Prompt templates — also teach what a good brief looks like */}
+      <div className="mt-7 animate-rise">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[#15110c]/40">Start from a template</p>
+        <div className="flex flex-wrap justify-center gap-2">
+          {TEMPLATES.map((t) => (
+            <button
+              key={t.label}
+              onClick={() => setInput(t.prompt)}
+              className="rounded-full border border-[#15110c]/12 bg-white px-3 py-1.5 text-sm text-[#15110c]/75 transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]"
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-[#15110c]/10 bg-white p-3 shadow-[0_1px_0_rgba(0,0,0,0.03),0_18px_50px_-18px_rgba(0,0,0,0.22)] animate-rise">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="e.g. 10 days in Japan, 2 people, IDR 40M, love ramen and onsen, hotels walkable to stations, no train over 2 hours…"
+          placeholder="…or describe your own: 10 days in Japan, 2 people, IDR 40M, love ramen and onsen, hotels walkable to stations, no train over 2 hours"
           rows={4}
           className="w-full resize-none rounded-xl bg-transparent p-3 text-left text-[15px] outline-none placeholder:text-[#15110c]/35"
         />
         <div className="flex flex-wrap items-center justify-between gap-3 px-1 pb-1">
-          <button onClick={onExample} className="text-sm text-[#15110c]/50 underline-offset-4 transition hover:text-[#e8643c] hover:underline">Use a sample trip</button>
+          <button
+            onClick={onImprove}
+            disabled={!canImprove}
+            title="Let AI sharpen your trip into a clear, complete brief"
+            className="rounded-xl border border-[#15110c]/15 px-3.5 py-2.5 text-sm font-medium text-[#15110c] transition active:scale-95 enabled:hover:border-[#e8643c] enabled:hover:text-[#e8643c] disabled:opacity-40"
+          >
+            {improving ? "✨ Improving…" : "✨ Improve my brief"}
+          </button>
           <button onClick={onGenerate} disabled={input.trim().length < 8} className="rounded-xl bg-[#15110c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 enabled:hover:bg-[#e8643c] disabled:opacity-40">See my plan — free →</button>
         </div>
       </div>
+      <p className="mt-3 text-xs text-[#15110c]/45 animate-rise">New to this? Pick a template, then hit <span className="font-medium text-[#15110c]/70">✨ Improve</span> to shape it — or just type and go.</p>
+
       <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[#15110c]/50 animate-rise">
         <span>✓ Hotels + tickets booked in-app</span>
         <span>✓ Every train under 2 hours</span>
