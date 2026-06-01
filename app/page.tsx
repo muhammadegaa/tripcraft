@@ -29,6 +29,20 @@ const MOCK_NOW = "11:05";
 type Phase = "input" | "generating" | "plan" | "live" | "reserved";
 type Msg = { id: number; role: "user" | "agent"; text?: string; steps?: string[]; pending?: boolean };
 type Toast = { id: number; text: string; icon: string };
+type Profile = { pace: string | null; interests: string[]; mustHaves: string[] };
+
+const PACES = ["Chill", "Balanced", "Packed"];
+const INTERESTS = ["Food", "Culture", "Nature", "Nightlife", "Shopping", "Relax"];
+const MUSTHAVES = ["Halal food", "Vegetarian", "Kid-friendly", "Accessible"];
+
+function profileToText(p: Profile | null): string {
+  if (!p) return "";
+  const parts: string[] = [];
+  if (p.pace) parts.push(`a ${p.pace.toLowerCase()} pace`);
+  if (p.interests.length) parts.push(`really into ${p.interests.join(", ").toLowerCase()}`);
+  if (p.mustHaves.length) parts.push(`must-haves: ${p.mustHaves.join(", ").toLowerCase()}`);
+  return parts.length ? `About how we travel — ${parts.join("; ")}. Tailor the plan to this.` : "";
+}
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -68,6 +82,9 @@ export default function Page() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [reserveOpen, setReserveOpen] = useState(false);
   const [reservedEmail, setReservedEmail] = useState("");
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [onboarded, setOnboarded] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [directions, setDirections] = useState<Stop | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -105,9 +122,32 @@ export default function Page() {
     }
   }
 
-  async function handleGenerate() {
+  function handleGenerate() {
+    if (input.trim().length < 8) return;
+    if (!onboarded) {
+      track("onboarding_open");
+      setProfileOpen(true);
+      return;
+    }
+    runGeneration(profile);
+  }
+
+  function submitProfile(p: Profile) {
+    setProfile(p);
+    setOnboarded(true);
+    setProfileOpen(false);
+    track("onboarding_done", { pace: p.pace, interests: p.interests.length, mustHaves: p.mustHaves.length });
+    runGeneration(p);
+  }
+  function skipProfile() {
+    setOnboarded(true);
+    setProfileOpen(false);
+    track("onboarding_skipped");
+    runGeneration(null);
+  }
+
+  async function runGeneration(p: Profile | null) {
     const text = input.trim();
-    if (text.length < 8) return;
     const t = parseTrip(text);
     const id = newId();
     setTrip(t);
@@ -115,12 +155,14 @@ export default function Page() {
     setStep(0);
     setPendingDays(null);
     setPhase("generating");
-    track("generate_started", { destination: t.destination, days: t.days });
+    const ptext = profileToText(p);
+    track("generate_started", { destination: t.destination, days: t.days, profiled: !!ptext });
+    const brief = ptext ? `${text}\n\n${ptext}` : text;
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ input: text }),
+        body: JSON.stringify({ input: brief }),
       });
       const data = await res.json();
       setPendingDays(data?.days?.length ? data.days : generate(t));
@@ -137,7 +179,7 @@ export default function Page() {
     }
     if (pendingDays && trip) {
       setDays(pendingDays);
-      saveTrip(tripId, { input, trip, days: pendingDays, status: "planned" });
+      saveTrip(tripId, { input, trip, days: pendingDays, status: "planned", profile });
       track("plan_viewed", { destination: trip.destination });
       setPhase("plan");
     }
@@ -280,6 +322,7 @@ export default function Page() {
       {showAgent && <AgentFab open={agentOpen} onToggle={() => setAgentOpen((v) => !v)} />}
       {showAgent && agentOpen && <AgentPanel msgs={msgs} busy={busy} onSend={send} onClose={() => setAgentOpen(false)} />}
 
+      {profileOpen && <ProfileModal onSubmit={submitProfile} onSkip={skipProfile} />}
       {reserveOpen && <ReserveSheet destination={trip?.destination} onSubmit={submitReserve} onClose={() => setReserveOpen(false)} />}
       {directions && <Directions stop={directions} onClose={() => setDirections(null)} />}
       <Toaster toasts={toasts} />
@@ -553,6 +596,64 @@ function Live({ trip, days, onDirections, onReflow, onReserve, onBack }: { trip:
         </div>
       </StickyBar>
     </section>
+  );
+}
+
+/* ─────────────────────────── onboarding (3-tap profile) ─────────────────────────── */
+
+function ProfileModal({ onSubmit, onSkip }: { onSubmit: (p: Profile) => void; onSkip: () => void }) {
+  const [pace, setPace] = useState<string | null>(null);
+  const [interests, setInterests] = useState<string[]>([]);
+  const [mustHaves, setMustHaves] = useState<string[]>([]);
+  const toggle = (arr: string[], set: (v: string[]) => void, v: string) =>
+    set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+  return (
+    <Sheet onClose={onSkip}>
+      <h3 className="text-lg font-semibold">Quick — how do you travel?</h3>
+      <p className="mt-1 text-sm text-[#15110c]/55">Three taps and your plan fits you. Or skip and we&apos;ll go with your brief.</p>
+
+      <Group label="Your pace">
+        {PACES.map((p) => (
+          <Chip key={p} active={pace === p} onClick={() => setPace(pace === p ? null : p)}>{p}</Chip>
+        ))}
+      </Group>
+      <Group label="You're into">
+        {INTERESTS.map((v) => (
+          <Chip key={v} active={interests.includes(v)} onClick={() => toggle(interests, setInterests, v)}>{v}</Chip>
+        ))}
+      </Group>
+      <Group label="Must-haves">
+        {MUSTHAVES.map((v) => (
+          <Chip key={v} active={mustHaves.includes(v)} onClick={() => toggle(mustHaves, setMustHaves, v)}>{v}</Chip>
+        ))}
+      </Group>
+
+      <button onClick={() => onSubmit({ pace, interests, mustHaves })} className="mt-5 w-full rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a]">
+        Build my plan →
+      </button>
+      <button onClick={onSkip} className="mt-2 w-full text-center text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">Skip — just use my brief</button>
+    </Sheet>
+  );
+}
+
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-4">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[#15110c]/40">{label}</div>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full border px-3.5 py-2 text-sm transition active:scale-95 ${active ? "border-[#e8643c] bg-[#e8643c] text-white" : "border-[#15110c]/15 bg-white text-[#15110c]/75 hover:border-[#e8643c]/50"}`}
+    >
+      {children}
+    </button>
   );
 }
 
