@@ -5,6 +5,7 @@ import { config } from "@/lib/config";
 import { burstConfetti } from "@/lib/confetti";
 import { saveTrip, saveLead } from "@/lib/firebase";
 import { track as vaTrack } from "@vercel/analytics";
+import Booking from "./Booking";
 import {
   parseTrip,
   generate,
@@ -27,7 +28,7 @@ const TEMPLATES = [
 const MOCK_DAY = 3;
 const MOCK_NOW = "11:05";
 
-type Phase = "input" | "generating" | "plan" | "live" | "reserved";
+type Phase = "input" | "generating" | "plan" | "live" | "reserved" | "booking";
 type Msg = { id: number; role: "user" | "agent"; text?: string; steps?: string[]; pending?: boolean };
 type Toast = { id: number; text: string; icon: string };
 type Profile = { pace: string | null; interests: string[]; mustHaves: string[] };
@@ -189,6 +190,10 @@ export default function Page() {
     track("reserve_open");
     setReserveOpen(true);
   }
+  function goBooking() {
+    track("booking_open", { destination: trip?.destination ?? "" });
+    setPhase("booking");
+  }
 
   async function submitReserve(email: string) {
     const persisted = await saveLead(email, {
@@ -262,11 +267,17 @@ export default function Page() {
         steps: ["Comparing nearby hotels…", "Checking station distance & ratings", "Swapping 2 stays"],
         reply: "Swapped two hotels for 4.5★ ones still 5 minutes from the station, roughly IDR 6jt under budget. Want me to keep those?",
       };
-    if (/(book|reserve|pay|buy|everything|confirm|access)/.test(t))
+    if (/(email|save|inbox|remind|later)/.test(t))
       return {
         steps: [],
-        reply: "Booking opens soon. Reserve your spot and you'll be first in line, with your plan saved to your inbox.",
+        reply: "Done. I'll email this plan and keep it saved so you can pick up right where you left off.",
         action: openReserve,
+      };
+    if (/(book|flight|ticket|pay|buy|confirm)/.test(t))
+      return {
+        steps: ["Pulling live fares for your dates…"],
+        reply: "Let's book it. Taking you to flights now, with real fares for your trip.",
+        action: goBooking,
       };
     if (/(food|eat|restaurant|ramen|sushi|hungry|dinner)/.test(t))
       return {
@@ -320,10 +331,13 @@ export default function Page() {
       )}
       {phase === "generating" && <Generating step={step} trip={trip!} />}
       {phase === "plan" && (
-        <Plan trip={trip!} days={days} onDirections={setDirections} onCommit={commit} onReserve={openReserve} onRestart={restart} />
+        <Plan trip={trip!} days={days} onDirections={setDirections} onCommit={commit} onBooking={goBooking} onReserve={openReserve} onRestart={restart} />
       )}
       {phase === "live" && (
-        <Live trip={trip!} days={days} onDirections={setDirections} onReflow={() => send("I'm running late")} onReserve={openReserve} onBack={() => setPhase("plan")} />
+        <Live trip={trip!} days={days} onDirections={setDirections} onReflow={() => send("I'm running late")} onBooking={goBooking} onBack={() => setPhase("plan")} />
+      )}
+      {phase === "booking" && (
+        <Booking trip={trip!} email={reservedEmail} onBack={() => setPhase("plan")} />
       )}
       {phase === "reserved" && (
         <Reserved trip={trip!} days={days} email={reservedEmail} onShare={shareTrip} onRestart={restart} />
@@ -442,8 +456,8 @@ function Generating({ step, trip }: { step: number; trip: Trip }) {
 
 /* ─────────────────────────── plan ─────────────────────────── */
 
-function Plan({ trip, days, onDirections, onCommit, onReserve, onRestart }: {
-  trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onCommit: () => void; onReserve: () => void; onRestart: () => void;
+function Plan({ trip, days, onDirections, onCommit, onBooking, onReserve, onRestart }: {
+  trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onCommit: () => void; onBooking: () => void; onReserve: () => void; onRestart: () => void;
 }) {
   const legs = days.reduce((n, d) => n + d.tickets.length, 0);
   return (
@@ -464,14 +478,15 @@ function Plan({ trip, days, onDirections, onCommit, onReserve, onRestart }: {
           <PlanDay key={d.n} d={d} onDirections={onDirections} />
         ))}
       </ol>
+      <button onClick={onReserve} className="mx-auto mt-8 block text-sm text-[#15110c]/45 transition hover:text-[#e8643c]">Not ready to book? Email me this plan instead →</button>
       <StickyBar>
         <div className="text-sm">
-          <span className="font-semibold">Want this trip?</span>
-          <span className="text-[#15110c]/55"> Reserve it and we&apos;ll email the plan, then get you in first to book.</span>
+          <span className="font-semibold">Ready to make it real?</span>
+          <span className="text-[#15110c]/55"> Book your flights now, hotels next.</span>
         </div>
         <div className="flex gap-2">
           <button onClick={onCommit} className="rounded-xl border border-[#15110c]/15 px-4 py-3 text-sm font-medium transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">See it live →</button>
-          <button onClick={onReserve} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Reserve my trip</button>
+          <button onClick={onBooking} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Continue to booking →</button>
         </div>
       </StickyBar>
     </section>
@@ -591,7 +606,7 @@ function InfoRow({ icon, title, sub, flag }: { icon: string; title: string; sub:
 
 /* ─────────────────────────── live ─────────────────────────── */
 
-function Live({ trip, days, onDirections, onReflow, onReserve, onBack }: { trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onReflow: () => void; onReserve: () => void; onBack: () => void }) {
+function Live({ trip, days, onDirections, onReflow, onBooking, onBack }: { trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onReflow: () => void; onBooking: () => void; onBack: () => void }) {
   const dayIndex = Math.max(1, Math.min(MOCK_DAY, days.length));
   const today = days[dayIndex - 1];
   const now = toMin(MOCK_NOW);
@@ -667,7 +682,7 @@ function Live({ trip, days, onDirections, onReflow, onReserve, onBack }: { trip:
         </div>
         <div className="flex gap-2">
           <button onClick={onReflow} className="rounded-xl border border-[#15110c]/15 px-4 py-3 text-sm font-medium transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">Re-flow my day</button>
-          <button onClick={onReserve} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Reserve my trip</button>
+          <button onClick={onBooking} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Continue to booking →</button>
         </div>
       </StickyBar>
     </section>
@@ -868,7 +883,7 @@ function AgentPanel({ msgs, busy, onSend, onClose }: { msgs: Msg[]; busy: boolea
   const [text, setText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => { scrollRef.current?.scrollTo({ top: 9e9, behavior: "smooth" }); }, [msgs]);
-  const chips = ["I'm running late", "Make it more relaxed", "Find cheaper hotels", "Reserve my trip"];
+  const chips = ["I'm running late", "Make it more relaxed", "Find cheaper hotels", "Book my flights"];
   function submit() { if (!text.trim()) return; onSend(text); setText(""); }
   return (
     <div className="fixed bottom-0 right-0 z-40 flex h-[78vh] w-full flex-col border-l border-t border-[#15110c]/10 bg-white shadow-2xl animate-sheet sm:bottom-[88px] sm:right-5 sm:h-[560px] sm:w-[380px] sm:rounded-2xl sm:border">
