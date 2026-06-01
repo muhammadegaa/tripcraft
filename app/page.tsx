@@ -489,24 +489,89 @@ function PlanDay({ d, onDirections }: { d: Day; onDirections: (s: Stop) => void 
         {d.tickets.map((t, i) => (
           <InfoRow key={i} icon={t.icon} title={t.mode} sub={`${t.from} → ${t.to} · ${t.depart}–${t.arrive} · ${t.dur} · ~${t.price}`} flag={t.flag} />
         ))}
-        <InfoRow icon="🏨" title={d.hotel.name} sub={`★ ${d.hotel.rating} · ${d.hotel.walk} · ~${d.hotel.price}`} />
-        <ol className="mt-1 space-y-3 border-l border-[#15110c]/10 pl-4">
+        <HotelRow hotel={d.hotel} city={d.city} />
+        <ol className="mt-1 space-y-3">
           {d.stops.map((s, i) => (
-            <li key={i} className="relative">
-              <span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-[#e8643c]" />
-              <div className="flex items-baseline gap-2 text-sm">
-                <span className="font-mono text-xs text-[#15110c]/45">{s.time}</span>
-                <span className="font-medium">{s.title}</span>
-              </div>
-              <p className="mt-0.5 text-xs text-[#15110c]/55">
-                ↳ {s.directions}{" "}
-                <button onClick={() => onDirections(s)} className="font-medium text-[#e8643c] underline-offset-2 hover:underline">directions ↗</button>
-              </p>
-              {s.tip && <p className="mt-1 text-xs text-[#15110c]/55">💡 {s.tip}</p>}
-            </li>
+            <StopRow key={i} stop={s} onDirections={onDirections} />
           ))}
         </ol>
         <p className="pt-1 text-sm text-[#e8643c]">🍜 {d.food}</p>
+      </div>
+    </li>
+  );
+}
+
+/* place enrichment: real photo + rating + review via Google Places (graceful) */
+type PlaceData = { enabled?: boolean; found?: boolean; rating?: number | null; reviews?: number | null; photoName?: string | null; review?: { text: string; author: string | null; rating: number | null } | null };
+const placeCache = new Map<string, PlaceData>();
+
+function usePlace(place?: string): PlaceData | undefined {
+  const [data, setData] = useState<PlaceData | undefined>(() => (place ? placeCache.get(place) : undefined));
+  useEffect(() => {
+    if (!place) return;
+    if (placeCache.has(place)) { setData(placeCache.get(place)); return; }
+    let on = true;
+    fetch(`/api/place?q=${encodeURIComponent(place)}`)
+      .then((r) => r.json())
+      .then((d: PlaceData) => { placeCache.set(place, d); if (on) setData(d); })
+      .catch(() => {});
+    return () => { on = false; };
+  }, [place]);
+  return data;
+}
+
+function PlaceThumb({ place, data }: { place: string; data?: PlaceData }) {
+  const src = data?.photoName ? `/api/place-photo?name=${encodeURIComponent(data.photoName)}` : null;
+  return (
+    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-[#15110c]/5">
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={place} loading="lazy" className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-lg text-[#15110c]/20">📍</div>
+      )}
+      {data?.rating ? (
+        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-1.5 pb-0.5 pt-3 text-[10px] font-semibold text-white">★ {data.rating}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function HotelRow({ hotel, city }: { hotel: Hotel; city: string }) {
+  const q = `${hotel.name} ${city}`;
+  const d = usePlace(q);
+  return (
+    <div className="flex gap-3 rounded-xl border border-[#15110c]/10 bg-[#faf7f2] p-3">
+      <PlaceThumb place={q} data={d} />
+      <div className="min-w-0 flex-1 text-sm">
+        <div className="truncate font-medium">🏨 {hotel.name}</div>
+        <div className="mt-1 text-xs text-[#15110c]/55">
+          {d?.rating ? `★ ${d.rating} (${(d.reviews ?? 0).toLocaleString()})` : `★ ${hotel.rating}`} · {hotel.walk} · ~{hotel.price}
+        </div>
+        {d?.review?.text ? (
+          <p className="mt-1.5 line-clamp-2 text-xs italic text-[#15110c]/55">“{d.review.text}”{d.review.author ? `, ${d.review.author}` : ""}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function StopRow({ stop, onDirections }: { stop: Stop; onDirections: (s: Stop) => void }) {
+  const d = usePlace(stop.place);
+  return (
+    <li className="flex gap-3">
+      <PlaceThumb place={stop.place} data={d} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2 text-sm">
+          <span className="font-mono text-xs text-[#15110c]/45">{stop.time}</span>
+          <span className="font-medium">{stop.title}</span>
+          {d?.rating ? <span className="shrink-0 text-xs text-[#15110c]/45">★ {d.rating}</span> : null}
+        </div>
+        <p className="mt-0.5 text-xs text-[#15110c]/55">
+          ↳ {stop.directions}{" "}
+          <button onClick={() => onDirections(stop)} className="font-medium text-[#e8643c] underline-offset-2 hover:underline">directions ↗</button>
+        </p>
+        {stop.tip && <p className="mt-1 text-xs text-[#15110c]/55">💡 {stop.tip}</p>}
       </div>
     </li>
   );
