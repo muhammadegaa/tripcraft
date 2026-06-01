@@ -699,7 +699,7 @@ function StripePay({ onDone }: { onDone: () => void }) {
   if (status === "done") return <PaidBlock />;
   return (
     <div className="mt-4">
-      <PaymentElement />
+      <PaymentElement options={{ defaultValues: { billingDetails: { address: { country: "ID" } } } }} />
       {err && <p className="mt-2 text-xs text-[#e8643c]">{err}</p>}
       <button onClick={pay} disabled={!stripe || status === "processing"} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-70">
         {status === "processing" ? (<><Spinner /> Processing…</>) : (<>Pay {config.price}</>)}
@@ -822,7 +822,7 @@ function Sheet({ children, onClose }: { children: React.ReactNode; onClose?: () 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div className="absolute inset-0 bg-black/30 animate-fade" onClick={onClose} />
-      <div className="animate-sheet relative w-full max-w-md rounded-t-3xl border border-[#15110c]/10 bg-white p-6 shadow-2xl sm:rounded-3xl">
+      <div className="animate-sheet relative max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-[#15110c]/10 bg-white p-6 shadow-2xl sm:rounded-3xl">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#15110c]/15 sm:hidden" />
         {children}
       </div>

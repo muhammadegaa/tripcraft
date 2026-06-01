@@ -37,6 +37,7 @@ export type Stop = {
   title: string;
   place: string; // searchable place name (powers real Maps directions)
   directions: string;
+  tip?: string; // practical insight: best time, cost, cash/card, heads-up
 };
 
 export type Day = {

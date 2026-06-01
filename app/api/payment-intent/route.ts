@@ -25,7 +25,9 @@ export async function POST() {
     const intent = await stripe.paymentIntents.create({
       amount,
       currency,
-      automatic_payment_methods: { enabled: true },
+      // Card-only keeps the checkout clean (no Link "save info" bloat). For the
+      // real Indonesian launch, add local rails (QRIS, GoPay/OVO, VA) here.
+      payment_method_types: ["card"],
       description: "Tripcraft concierge deposit",
     });
     return Response.json({ clientSecret: intent.client_secret });
