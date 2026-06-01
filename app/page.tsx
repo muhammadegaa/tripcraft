@@ -16,7 +16,7 @@ import {
 } from "@/lib/itinerary";
 
 const TEMPLATES = [
-  { label: "🍜 Japan food trip", prompt: "10 days in Japan in November, 2 people, IDR 45M budget. We're obsessed with food — ramen, sushi, izakaya, markets. Hotels walkable to train stations, no transit leg over 2 hours." },
+  { label: "🍜 Japan food trip", prompt: "10 days in Japan in November, 2 people, IDR 45M budget. We're obsessed with food: ramen, sushi, izakaya, markets. Hotels walkable to train stations, no transit leg over 2 hours." },
   { label: "🌸 Cherry blossom", prompt: "8 days in Japan in late March for cherry blossoms, 2 people, IDR 40M. We love gardens, temples, and street food. Hotels near stations, no train over 2 hours." },
   { label: "👨‍👩‍👧 Family Japan", prompt: "7 days in Tokyo and nearby, family of 4 with two kids (6 and 9), IDR 60M. Theme parks, easy relaxed days, kid-friendly food. Hotels right by a station, only short transit." },
   { label: "🏝️ Bali reset", prompt: "6 days in Bali, 2 people, IDR 20M. Beaches, cafes, yoga, sunsets. Relaxed pace, nice stays close to the action, no long drives." },
@@ -41,7 +41,7 @@ function profileToText(p: Profile | null): string {
   if (p.pace) parts.push(`a ${p.pace.toLowerCase()} pace`);
   if (p.interests.length) parts.push(`really into ${p.interests.join(", ").toLowerCase()}`);
   if (p.mustHaves.length) parts.push(`must-haves: ${p.mustHaves.join(", ").toLowerCase()}`);
-  return parts.length ? `About how we travel — ${parts.join("; ")}. Tailor the plan to this.` : "";
+  return parts.length ? `About how we travel: ${parts.join("; ")}. Tailor the plan to this.` : "";
 }
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -113,7 +113,7 @@ export default function Page() {
       const data = await res.json();
       if (data?.improved) {
         setInput(data.improved);
-        pushToast("Sharpened your trip — tweak anything", "✨");
+        pushToast("Sharpened your trip. Tweak anything", "✨");
       }
     } catch {
       /* leave input as-is */
@@ -225,11 +225,11 @@ export default function Page() {
   function shareTrip() {
     track("share_click");
     const url = typeof window !== "undefined" ? window.location.origin : "";
-    const text = `I just planned my ${trip?.destination ?? "trip"} on Tripcraft — describe your trip and it builds the whole thing, hotels by the station and no long trains. Try it:`;
+    const text = `I just planned my ${trip?.destination ?? "trip"} on Tripcraft. You describe your trip and it builds the whole thing, hotels by the station and no long trains. Try it:`;
     if (typeof navigator !== "undefined" && navigator.share) {
       navigator.share({ title: "Tripcraft", text, url }).catch(() => {});
     } else if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(`${text} ${url}`).then(() => pushToast("Link copied — share it", "🔗"));
+      navigator.clipboard.writeText(`${text} ${url}`).then(() => pushToast("Link copied, go share it", "🔗"));
     }
   }
 
@@ -245,17 +245,17 @@ export default function Page() {
     if (/(relax|chill|less|lighter|tired|easy)/.test(t))
       return {
         steps: ["Reviewing your pacing…", "Finding the busiest day", "Loosening the schedule"],
-        reply: "I lightened your busiest day — fewer stops, longer meals, a slow afternoon. Want it across the whole trip?",
+        reply: "I lightened your busiest day: fewer stops, longer meals, a slow afternoon. Want that across the whole trip?",
       };
     if (/(cheap|budget|save|afford|expensive)/.test(t))
       return {
         steps: ["Comparing nearby hotels…", "Checking station distance & ratings", "Swapping 2 stays"],
-        reply: "Swapped two hotels for 4.5★ ones still 5 minutes from the station — roughly IDR 6jt under budget. Want me to keep those?",
+        reply: "Swapped two hotels for 4.5★ ones still 5 minutes from the station, roughly IDR 6jt under budget. Want me to keep those?",
       };
     if (/(book|reserve|pay|buy|everything|confirm|access)/.test(t))
       return {
         steps: [],
-        reply: "Booking opens soon — reserve your spot and you'll be first in line, with your plan saved to your inbox.",
+        reply: "Booking opens soon. Reserve your spot and you'll be first in line, with your plan saved to your inbox.",
         action: openReserve,
       };
     if (/(food|eat|restaurant|ramen|sushi|hungry|dinner)/.test(t))
@@ -357,7 +357,7 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
         Your whole Japan trip,<br />planned to the minute.
       </h1>
       <p className="mx-auto mt-5 max-w-xl text-balance text-lg text-[#15110c]/65 animate-rise">
-        Describe your trip in plain words. We build a real day-by-day plan — hotels you can walk to the station from, no train over 2 hours, on your budget. Reserve now and you&apos;re first to book it all when we open.
+        Describe your trip in plain words. We build a real day-by-day plan: hotels you can walk to the station from, no train over 2 hours, all on your budget. Reserve now and you&apos;re first to book it when we open.
       </p>
 
       <div className="mt-7 animate-rise">
@@ -383,10 +383,10 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
           <button onClick={onImprove} disabled={!canImprove} title="Let AI sharpen your trip into a clear, complete brief" className="rounded-xl border border-[#15110c]/15 px-3.5 py-2.5 text-sm font-medium text-[#15110c] transition active:scale-95 enabled:hover:border-[#e8643c] enabled:hover:text-[#e8643c] disabled:opacity-40">
             {improving ? "✨ Improving…" : "✨ Improve my brief"}
           </button>
-          <button onClick={onGenerate} disabled={input.trim().length < 8} className="rounded-xl bg-[#15110c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 enabled:hover:bg-[#e8643c] disabled:opacity-40">See my plan — free →</button>
+          <button onClick={onGenerate} disabled={input.trim().length < 8} className="rounded-xl bg-[#15110c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 enabled:hover:bg-[#e8643c] disabled:opacity-40">See my plan, free →</button>
         </div>
       </div>
-      <p className="mt-3 text-xs text-[#15110c]/45 animate-rise">New here? Pick a template, then hit <span className="font-medium text-[#15110c]/70">✨ Improve</span> to shape it — or just type and go.</p>
+      <p className="mt-3 text-xs text-[#15110c]/45 animate-rise">New here? Pick a template, then hit <span className="font-medium text-[#15110c]/70">✨ Improve</span> to shape it, or just type and go.</p>
 
       <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[#15110c]/50 animate-rise">
         <span>✓ A real plan in ~20 seconds</span>
@@ -457,7 +457,7 @@ function Plan({ trip, days, onDirections, onCommit, onReserve, onRestart }: {
       <StickyBar>
         <div className="text-sm">
           <span className="font-semibold">Want this trip?</span>
-          <span className="text-[#15110c]/55"> Reserve it — we&apos;ll email the plan and get you in first to book.</span>
+          <span className="text-[#15110c]/55"> Reserve it and we&apos;ll email the plan, then get you in first to book.</span>
         </div>
         <div className="flex gap-2">
           <button onClick={onCommit} className="rounded-xl border border-[#15110c]/15 px-4 py-3 text-sm font-medium transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">See it live →</button>
@@ -472,7 +472,7 @@ function PlanDay({ d, onDirections }: { d: Day; onDirections: (s: Stop) => void 
   return (
     <li className="overflow-hidden rounded-2xl border border-[#15110c]/10 bg-white transition hover:shadow-[0_12px_40px_-18px_rgba(0,0,0,0.25)]">
       <div className="flex items-baseline justify-between gap-4 border-b border-[#15110c]/8 px-5 py-3">
-        <h3 className="font-semibold">Day {d.n} · {d.city}<span className="font-normal text-[#15110c]/50"> — {d.area}</span></h3>
+        <h3 className="font-semibold">Day {d.n} · {d.city}<span className="font-normal text-[#15110c]/50">, {d.area}</span></h3>
         <span className="shrink-0 text-xs text-[#1f9d6b]">longest leg {d.maxLeg}</span>
       </div>
       <div className="space-y-3 px-5 py-4">
@@ -610,8 +610,8 @@ function ProfileModal({ onSubmit, onSkip }: { onSubmit: (p: Profile) => void; on
 
   return (
     <Sheet onClose={onSkip}>
-      <h3 className="text-lg font-semibold">Quick — how do you travel?</h3>
-      <p className="mt-1 text-sm text-[#15110c]/55">Three taps and your plan fits you. Or skip and we&apos;ll go with your brief.</p>
+      <h3 className="text-lg font-semibold">How do you like to travel?</h3>
+      <p className="mt-1 text-sm text-[#15110c]/55">Three taps and your plan fits you. Or skip and we&apos;ll go off your brief.</p>
 
       <Group label="Your pace">
         {PACES.map((p) => (
@@ -632,7 +632,7 @@ function ProfileModal({ onSubmit, onSkip }: { onSubmit: (p: Profile) => void; on
       <button onClick={() => onSubmit({ pace, interests, mustHaves })} className="mt-5 w-full rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a]">
         Build my plan →
       </button>
-      <button onClick={onSkip} className="mt-2 w-full text-center text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">Skip — just use my brief</button>
+      <button onClick={onSkip} className="mt-2 w-full text-center text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">Skip, just use my brief</button>
     </Sheet>
   );
 }
@@ -672,7 +672,7 @@ function ReserveSheet({ destination, onSubmit, onClose }: { destination?: string
     <Sheet onClose={saving ? undefined : onClose}>
       <h3 className="text-lg font-semibold">Reserve your {destination ?? "trip"}</h3>
       <p className="mt-1 text-sm text-[#15110c]/55">
-        We&apos;re opening booking to a small group first. Drop your email — we&apos;ll send this plan and let you know the moment you can book it in-app.
+        We&apos;re opening booking to a small group first. Drop your email and we&apos;ll send this plan, then let you know the moment you can book it in-app.
       </p>
       <input
         type="email"
@@ -686,7 +686,7 @@ function ReserveSheet({ destination, onSubmit, onClose }: { destination?: string
       <button onClick={submit} disabled={!valid || saving} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-50">
         {saving ? (<><Spinner /> Reserving…</>) : (<>Reserve my spot</>)}
       </button>
-      <p className="mt-3 text-center text-xs text-[#15110c]/40">No spam — just your plan and a heads-up when booking opens.</p>
+      <p className="mt-3 text-center text-xs text-[#15110c]/40">No spam. Just your plan, and a heads-up when booking opens.</p>
     </Sheet>
   );
 }
@@ -694,7 +694,7 @@ function ReserveSheet({ destination, onSubmit, onClose }: { destination?: string
 function Reserved({ trip, days, email, onShare, onRestart }: { trip: Trip; days: Day[]; email: string; onShare: () => void; onRestart: () => void }) {
   const steps = [
     ["Your plan, in your inbox", `We're sending the full ${trip.destination} itinerary to ${email}.`],
-    ["We line up the real prices", "When booking opens, we pull live flight + hotel prices for your dates — no guesswork."],
+    ["We line up the real prices", "When booking opens, we pull live flight and hotel prices for your dates. No guesswork."],
     ["You book first", "Early-access travelers get to book the whole trip in-app before anyone else."],
   ];
   return (
@@ -807,7 +807,7 @@ function AgentPanel({ msgs, busy, onSend, onClose }: { msgs: Msg[]; busy: boolea
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
         {msgs.length === 0 && (
           <div className="rounded-xl bg-[#faf7f2] p-4 text-sm text-[#15110c]/70">
-            Hi — ask me to re-flow your days, swap hotels to hit budget, or get you early access to book.
+            Hi! Ask me to re-flow your days, swap hotels to hit your budget, or get you early access to book.
           </div>
         )}
         {msgs.map((m) => (m.role === "user" ? (
@@ -886,7 +886,7 @@ function Badge({ children }: { children: React.ReactNode }) {
 function HowItWorks() {
   const steps = [
     ["Tell us in plain words", "Dates, budget, who's coming, your dealbreakers. No forms."],
-    ["We plan the whole thing", "Hotels by the station, every train under 2 hours, balanced to your budget — door to door."],
+    ["We plan the whole thing", "Hotels by the station, every train under 2 hours, balanced to your budget, door to door."],
     ["Reserve and book first", "Save your plan and get early access to book it all in-app, then a live guide for each day."],
   ];
   return (
@@ -906,5 +906,5 @@ function HowItWorks() {
 }
 
 function Footer() {
-  return <footer className="mx-auto max-w-5xl px-6 py-10 text-center text-xs text-[#15110c]/40">{config.brandName} — trips that respect the rules you actually care about.</footer>;
+  return <footer className="mx-auto max-w-5xl px-6 py-10 text-center text-xs text-[#15110c]/40">{config.brandName}. Trips that respect the rules you actually care about.</footer>;
 }

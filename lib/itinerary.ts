@@ -140,7 +140,7 @@ const JAPAN_DAYS: Day[] = [
       { time: "18:00", title: "Omoide Yokocho lantern alley", place: "Omoide Yokocho Tokyo", directions: "7 min walk, just west of the station tracks." },
       { time: "20:00", title: "Metropolitan Bldg night view (free)", place: "Tokyo Metropolitan Government Building Observation Deck", directions: "10 min walk, 45F observatory, last entry 21:30." },
     ],
-    food: "Tsukemen at Fuunji, 5 min from the hotel — go before 19:00 to skip the queue",
+    food: "Tsukemen at Fuunji, 5 min from the hotel. Go before 19:00 to skip the queue.",
   },
   {
     n: 0, city: "Tokyo", area: "Asakusa & Ueno", maxLeg: "38 min", hotel: TOKYO_HOTEL,
@@ -150,7 +150,7 @@ const JAPAN_DAYS: Day[] = [
       { time: "12:30", title: "Ueno Park + Ameyoko market", place: "Ameyoko Market Ueno", directions: "2 stops on the Ginza line, 9 min." },
       { time: "16:00", title: "Sumida riverside + Skytree view", place: "Sumida Park Tokyo", directions: "10 min walk back along the river from Ueno." },
     ],
-    food: "Tempura at Daikokuya (est. 1887) — expect a 20 min wait at lunch",
+    food: "Tempura at Daikokuya (est. 1887). Expect a 20 min wait at lunch.",
   },
   {
     n: 0, city: "Tokyo", area: "Shibuya & Harajuku", maxLeg: "15 min", hotel: TOKYO_HOTEL,
@@ -158,7 +158,7 @@ const JAPAN_DAYS: Day[] = [
     stops: [
       { time: "09:15", title: "Meiji Shrine forest walk", place: "Meiji Jingu", directions: "1 min from Harajuku Stn, enter the Omotesando gate." },
       { time: "11:30", title: "Takeshita St + Omotesando shops", place: "Takeshita Street Harajuku", directions: "Cross back over the tracks from the shrine." },
-      { time: "17:00", title: "Shibuya Sky observation deck", place: "Shibuya Sky", directions: "2 stops to Shibuya, top of Scramble Square — book the 17:30 slot." },
+      { time: "17:00", title: "Shibuya Sky observation deck", place: "Shibuya Sky", directions: "2 stops to Shibuya, top of Scramble Square. Book the 17:30 slot." },
     ],
     food: "Conveyor sushi at Uobei + a Harajuku crepe on the walk",
   },
@@ -177,7 +177,7 @@ const JAPAN_DAYS: Day[] = [
   },
   {
     n: 0, city: "Kyoto", area: "East Kyoto", maxLeg: "1h 58m", hotel: KYOTO_HOTEL,
-    tickets: [{ icon: "🚅", mode: "Tokaido Shinkansen (Hikari)", from: "Odawara", to: "Kyoto", depart: "09:50", arrive: "11:48", dur: "1h 58m", price: "IDR 1,5jt", flag: "longest leg of the trip — still under 2h" }],
+    tickets: [{ icon: "🚅", mode: "Tokaido Shinkansen (Hikari)", from: "Odawara", to: "Kyoto", depart: "09:50", arrive: "11:48", dur: "1h 58m", price: "IDR 1,5jt", flag: "longest leg of the trip, still under 2h" }],
     stops: [
       { time: "13:00", title: "Fushimi Inari torii gates", place: "Fushimi Inari Taisha", directions: "JR Nara line 2 stops from Kyoto Stn, 5 min." },
       { time: "15:30", title: "Kiyomizu-dera + Higashiyama lanes", place: "Kiyomizu-dera", directions: "City bus 100, or a 15 min taxi from Fushimi." },
@@ -210,9 +210,9 @@ const JAPAN_DAYS: Day[] = [
     tickets: [{ icon: "🚆", mode: "Kintetsu line", from: "Kyoto", to: "Kintetsu-Nara", depart: "09:10", arrive: "09:55", dur: "45m", price: "IDR 70rb" }],
     stops: [
       { time: "10:00", title: "Todai-ji Great Buddha", place: "Todai-ji", directions: "20 min walk or loop bus from Kintetsu-Nara Stn." },
-      { time: "12:30", title: "Deer park + Kasuga shrine", place: "Nara Park", directions: "Adjacent to Todai-ji — buy deer crackers at the gate." },
+      { time: "12:30", title: "Deer park + Kasuga shrine", place: "Nara Park", directions: "Adjacent to Todai-ji. Buy deer crackers at the gate." },
       { time: "15:00", title: "Return to Kyoto, farewell dinner", place: "Kyoto Station", directions: "Kintetsu express back, 45 min." },
     ],
-    food: "Kakinoha-zushi (persimmon-leaf sushi) — a Nara specialty",
+    food: "Kakinoha-zushi (persimmon-leaf sushi), a Nara specialty",
   },
 ];

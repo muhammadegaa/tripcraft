@@ -27,10 +27,10 @@ export default function OG() {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div style={{ fontSize: 64, fontWeight: 700, lineHeight: 1.05, letterSpacing: -1, maxWidth: 980 }}>
-            Your trip, booked end-to-end — and a companion for every day.
+            Your whole trip, planned to the minute.
           </div>
           <div style={{ fontSize: 30, color: "#15110c", opacity: 0.6, maxWidth: 900 }}>
-            Hotels by the station · no train over 2 hours · on your budget · money back if we miss a rule.
+            Hotels by the station · no train over 2 hours · on your budget · a real plan in seconds.
           </div>
         </div>
         <div style={{ display: "flex", gap: 14 }}>

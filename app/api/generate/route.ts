@@ -23,6 +23,7 @@ Hard rules you MUST respect:
 - "directions" should be concrete and walkable (e.g. "5 min walk from the south exit").
 - "place" must be a searchable place name.
 - 3 to 4 stops per day, 1 to 2 transport tickets per day. Be concise.
+- Write like a well-travelled friend giving tips, not a brochure. Never use em dashes (—); use commas, colons, or periods. No filler words ("nestled", "vibrant", "immerse", "gem").
 CRITICAL: the "days" array MUST contain exactly one object per requested day — if N days are requested, output N day objects, no fewer. This is the most important rule.
 Return JSON only, matching the provided schema.`;
 

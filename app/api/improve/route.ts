@@ -11,6 +11,7 @@ Rewrite their input into ONE concise first-person brief (2-3 sentences). Rules:
 - If you add a budget, use Indonesian rupiah (e.g. "around IDR 40M"). Keep any currency the user already gave.
 - Always end with the app's two signature constraints, worded as: hotels within a short walk of a train/transit station, and no transit leg over 2 hours. Use exactly "2 hours" — do not change the number.
 - Do NOT invent named hotels, exact addresses, or specific dates the user didn't imply.
+- Sound like a real person, not AI. Never use em dashes (—); use commas or periods. No filler.
 - Output ONLY the rewritten brief. No preamble, no quotes, no bullet points.`;
 
 function heuristic(input: string): string {

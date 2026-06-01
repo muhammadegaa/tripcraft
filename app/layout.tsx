@@ -7,9 +7,9 @@ import { Analytics } from "@vercel/analytics/next";
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
-const title = `${config.brandName} — Your trip, booked end-to-end + a live guide`;
+const title = `${config.brandName} · Your whole trip, planned to the minute`;
 const description =
-  "Describe your trip in plain words. We build a day-by-day plan — hotels by the station, no train over 2 hours, on your budget — book it all in-app, then a live companion guides you each day. Money back if we miss a rule.";
+  "Describe your trip in plain words and get a real day-by-day plan: hotels by the station, no train over 2 hours, all on your budget. Reserve early access to book it in-app, with a live guide for every day.";
 
 export const metadata: Metadata = {
   title,
