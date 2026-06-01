@@ -4,8 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { config } from "@/lib/config";
 import { burstConfetti } from "@/lib/confetti";
 import { saveTrip, saveLead } from "@/lib/firebase";
-import { loadStripe } from "@stripe/stripe-js";
-import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import {
   parseTrip,
   generate,
@@ -28,11 +26,7 @@ const TEMPLATES = [
 const MOCK_DAY = 3;
 const MOCK_NOW = "11:05";
 
-const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
-  : null;
-
-type Phase = "input" | "generating" | "plan" | "live";
+type Phase = "input" | "generating" | "plan" | "live" | "reserved";
 type Msg = { id: number; role: "user" | "agent"; text?: string; steps?: string[]; pending?: boolean };
 type Toast = { id: number; text: string; icon: string };
 
@@ -71,10 +65,9 @@ export default function Page() {
   const [pendingDays, setPendingDays] = useState<Day[] | null>(null);
   const [step, setStep] = useState(0);
   const [tripId, setTripId] = useState<string>("");
-  const [booked, setBooked] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [depositOpen, setDepositOpen] = useState(false);
-  const [leadOpen, setLeadOpen] = useState(false);
+  const [reserveOpen, setReserveOpen] = useState(false);
+  const [reservedEmail, setReservedEmail] = useState("");
   const [directions, setDirections] = useState<Stop | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -83,31 +76,10 @@ export default function Page() {
   const idRef = useRef(1);
   const nextId = () => idRef.current++;
 
-  const isBooked = (label: string) => booked.includes(label);
-
   function pushToast(text: string, icon = "✓") {
     const id = nextId();
     setToasts((t) => [...t, { id, text, icon }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
-  }
-
-  function allLabels(list: Day[]) {
-    const labels: string[] = [];
-    for (const d of list) {
-      labels.push(`Hotel: ${d.hotel.name}`);
-      for (const t of d.tickets) labels.push(`${t.mode} ${t.from}→${t.to}`);
-    }
-    return Array.from(new Set(labels));
-  }
-
-  function markBooked(labels: string | string[], toast?: string) {
-    const arr = Array.isArray(labels) ? labels : [labels];
-    setBooked((b) => {
-      const next = Array.from(new Set([...b, ...arr]));
-      saveTrip(tripId, { booked: next });
-      return next;
-    });
-    if (toast) pushToast(toast, "✓");
   }
 
   async function improveBrief() {
@@ -124,7 +96,7 @@ export default function Page() {
       const data = await res.json();
       if (data?.improved) {
         setInput(data.improved);
-        pushToast("✨ Sharpened your trip brief — tweak anything", "✨");
+        pushToast("Sharpened your trip — tweak anything", "✨");
       }
     } catch {
       /* leave input as-is */
@@ -157,7 +129,6 @@ export default function Page() {
     }
   }
 
-  // Generation: run the agent animation; transition once the API resolves.
   useEffect(() => {
     if (phase !== "generating") return;
     if (step < GENERATING_STEPS.length) {
@@ -172,46 +143,52 @@ export default function Page() {
     }
   }, [phase, step, pendingDays, trip, tripId, input]);
 
-  function openDeposit() {
-    track("deposit_open");
-    setDepositOpen(true);
+  function openReserve() {
+    track("reserve_open");
+    setReserveOpen(true);
   }
-  async function submitLead(email: string): Promise<boolean> {
+
+  async function submitReserve(email: string) {
     const persisted = await saveLead(email, {
       destination: trip?.destination,
       days: trip?.days,
+      party: trip?.party,
       budget: trip?.budget,
       tripText: trip?.raw,
       tripId,
+      status: "reserved",
     });
-    track("lead_captured", { persisted });
-    saveTrip(tripId, { leadEmail: email.toLowerCase() });
-    return persisted;
-  }
-  function onDepositPaid() {
-    markBooked(allLabels(days));
-    saveTrip(tripId, { status: "deposit_paid" });
-    track("deposit_paid");
-    pushToast("Trip booked! Everything's reserved.", "🎉");
-    setTimeout(burstConfetti, 150);
+    track("reserved", { persisted, destination: trip?.destination });
+    saveTrip(tripId, { status: "reserved", leadEmail: email.toLowerCase() });
+    setReservedEmail(email);
+    setReserveOpen(false);
+    setPhase("reserved");
+    setTimeout(burstConfetti, 250);
   }
 
   function commit() {
-    track("plan_committed", { destination: trip?.destination });
-    saveTrip(tripId, { status: "committed" });
+    track("preview_live", { destination: trip?.destination });
     setPhase("live");
-    setTimeout(burstConfetti, 250);
-    pushToast("You're committed — live companion unlocked", "🎉");
   }
 
   function reflowToday() {
-    setDays((ds) => {
-      const next = ds.map((d, i) =>
+    setDays((ds) =>
+      ds.map((d, i) =>
         i === MOCK_DAY - 1 ? { ...d, stops: d.stops.map((s, si) => (si > 0 ? { ...s, time: addMin(s.time, 30) } : s)) } : d
-      );
-      return next;
-    });
+      )
+    );
     pushToast("Day re-flowed around your location", "✦");
+  }
+
+  function shareTrip() {
+    track("share_click");
+    const url = typeof window !== "undefined" ? window.location.origin : "";
+    const text = `I just planned my ${trip?.destination ?? "trip"} on Tripcraft — describe your trip and it builds the whole thing, hotels by the station and no long trains. Try it:`;
+    if (typeof navigator !== "undefined" && navigator.share) {
+      navigator.share({ title: "Tripcraft", text, url }).catch(() => {});
+    } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(`${text} ${url}`).then(() => pushToast("Link copied — share it", "🔗"));
+    }
   }
 
   function decide(textRaw: string): { steps: string[]; reply: string; action?: () => void } {
@@ -219,34 +196,34 @@ export default function Page() {
     const city = trip ? days[0]?.city : "";
     if (/(late|behind|re-?flow|delay|slow down|catch up)/.test(t))
       return {
-        steps: ["Reading your live location…", "Recalculating today's timings…", "Protecting your 17:30 booking"],
-        reply: "Done. I pushed your afternoon back 30 minutes and kept your evening booking. You've got breathing room — no need to rush.",
+        steps: ["Reading your live location…", "Recalculating today's timings…", "Protecting your 17:30 plan"],
+        reply: "Done. I pushed your afternoon back 30 minutes and kept your evening locked in. No need to rush.",
         action: reflowToday,
       };
     if (/(relax|chill|less|lighter|tired|easy)/.test(t))
       return {
         steps: ["Reviewing your pacing…", "Finding the busiest day", "Loosening the schedule"],
-        reply: "I lightened your busiest day: fewer stops, longer meals, and a slow afternoon. Want me to apply it across the trip?",
+        reply: "I lightened your busiest day — fewer stops, longer meals, a slow afternoon. Want it across the whole trip?",
       };
     if (/(cheap|budget|save|afford|expensive)/.test(t))
       return {
-        steps: ["Comparing 12 nearby hotels…", "Checking station distance & ratings", "Swapping 2 stays"],
-        reply: "Found savings: two hotels swapped for 4.5★ options still under 5 min from the station. About IDR 6jt under budget — shall I lock it in?",
+        steps: ["Comparing nearby hotels…", "Checking station distance & ratings", "Swapping 2 stays"],
+        reply: "Swapped two hotels for 4.5★ ones still 5 minutes from the station — roughly IDR 6jt under budget. Want me to keep those?",
       };
-    if (/(book|reserve|pay|buy|everything|confirm)/.test(t))
+    if (/(book|reserve|pay|buy|everything|confirm|access)/.test(t))
       return {
-        steps: ["Bundling hotels + tickets…", "Locking today's prices"],
-        reply: "Opening secure checkout for your full trip — hotels, trains, and activities in one payment.",
-        action: openDeposit,
+        steps: [],
+        reply: "Booking opens soon — reserve your spot and you'll be first in line, with your plan saved to your inbox.",
+        action: openReserve,
       };
     if (/(food|eat|restaurant|ramen|sushi|hungry|dinner)/.test(t))
       return {
         steps: ["Scanning your food days…", "Matching to your taste"],
-        reply: `For ${city || "your trip"} I'd start with the spot by your hotel tonight, then the market tasting tomorrow. Want me to reserve tables on the food days?`,
+        reply: `In ${city || "your trip"} I'd hit the spot by your hotel tonight, then the market tasting tomorrow. Want those pinned?`,
       };
     return {
       steps: [],
-      reply: "I can re-flow your days, swap hotels to hit budget, book everything in one payment, or guide you live on the ground. What would help?",
+      reply: "I can re-flow your days, swap hotels to hit budget, or get you early access to book. What would help?",
     };
   }
 
@@ -256,7 +233,7 @@ export default function Page() {
     setAgentOpen(true);
     setBusy(true);
     setMsgs((m) => [...m, { id: nextId(), role: "user", text }]);
-    track("agent_message", { text });
+    track("agent_message");
     const aId = nextId();
     setMsgs((m) => [...m, { id: aId, role: "agent", pending: true, steps: [] }]);
     const plan = decide(text);
@@ -268,6 +245,13 @@ export default function Page() {
     setMsgs((m) => m.map((x) => (x.id === aId ? { ...x, pending: false, text: plan.reply } : x)));
     plan.action?.();
     setBusy(false);
+  }
+
+  function restart() {
+    setPhase("input");
+    setInput("");
+    setMsgs([]);
+    setReservedEmail("");
   }
 
   const showAgent = phase === "plan" || phase === "live";
@@ -284,39 +268,19 @@ export default function Page() {
       )}
       {phase === "generating" && <Generating step={step} trip={trip!} />}
       {phase === "plan" && (
-        <Plan
-          trip={trip!}
-          days={days}
-          isBooked={isBooked}
-          onBookHotel={(h) => markBooked(`Hotel: ${h.name}`, "Added to your trip")}
-          onBuyTicket={(t) => markBooked(`${t.mode} ${t.from}→${t.to}`, "Added to your trip")}
-          onDirections={setDirections}
-          onCommit={commit}
-          onLead={() => setLeadOpen(true)}
-          onRestart={() => {
-            setPhase("input");
-            setInput("");
-            setBooked([]);
-            setMsgs([]);
-          }}
-        />
+        <Plan trip={trip!} days={days} onDirections={setDirections} onCommit={commit} onReserve={openReserve} onRestart={restart} />
       )}
       {phase === "live" && (
-        <Live trip={trip!} days={days} onDirections={setDirections} onReflow={() => send("I'm running late")} onDeposit={openDeposit} onBack={() => setPhase("plan")} />
+        <Live trip={trip!} days={days} onDirections={setDirections} onReflow={() => send("I'm running late")} onReserve={openReserve} onBack={() => setPhase("plan")} />
+      )}
+      {phase === "reserved" && (
+        <Reserved trip={trip!} days={days} email={reservedEmail} onShare={shareTrip} onRestart={restart} />
       )}
 
       {showAgent && <AgentFab open={agentOpen} onToggle={() => setAgentOpen((v) => !v)} />}
       {showAgent && agentOpen && <AgentPanel msgs={msgs} busy={busy} onSend={send} onClose={() => setAgentOpen(false)} />}
 
-      {depositOpen && (
-        <DepositSheet
-          nights={days.length}
-          legs={days.reduce((n, d) => n + d.tickets.length, 0)}
-          onClose={() => setDepositOpen(false)}
-          onPaid={onDepositPaid}
-        />
-      )}
-      {leadOpen && <EmailCapture destination={trip?.destination} onSubmit={submitLead} onClose={() => setLeadOpen(false)} />}
+      {reserveOpen && <ReserveSheet destination={trip?.destination} onSubmit={submitReserve} onClose={() => setReserveOpen(false)} />}
       {directions && <Directions stop={directions} onClose={() => setDirections(null)} />}
       <Toaster toasts={toasts} />
       <Footer />
@@ -335,7 +299,7 @@ function Nav({ live }: { live: boolean }) {
       </div>
       <span className="flex items-center gap-1.5 rounded-full border border-[#15110c]/10 bg-white px-3 py-1 text-xs font-medium text-[#15110c]/70">
         {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1f9d6b]" />}
-        {live ? "Live companion" : "Full refund if we miss a rule"}
+        {live ? "Live companion · preview" : "Free · no signup to try"}
       </span>
     </header>
   );
@@ -345,24 +309,19 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
   const canImprove = input.trim().length >= 3 && !improving;
   return (
     <section className="mx-auto max-w-3xl px-6 pb-10 pt-10 text-center">
-      <p className="mb-4 text-sm font-medium text-[#e8643c] animate-rise">Plan it, book it, then we guide you through it</p>
+      <p className="mb-4 text-sm font-medium text-[#e8643c] animate-rise">Constraint-perfect trip planning · booking opens soon</p>
       <h1 className="text-balance text-4xl font-semibold leading-tight tracking-tight sm:text-5xl animate-rise">
-        A Japan trip booked end-to-end —<br />and a companion for every day.
+        Your whole Japan trip,<br />planned to the minute.
       </h1>
       <p className="mx-auto mt-5 max-w-xl text-balance text-lg text-[#15110c]/65 animate-rise">
-        Hotels by the station, trains that never run over 2 hours, every ticket booked inside the app. Then a live guide that knows where you are and what&apos;s next. Miss a rule, get your money back.
+        Describe your trip in plain words. We build a real day-by-day plan — hotels you can walk to the station from, no train over 2 hours, on your budget. Reserve now and you&apos;re first to book it all when we open.
       </p>
 
-      {/* Prompt templates — also teach what a good brief looks like */}
       <div className="mt-7 animate-rise">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[#15110c]/40">Start from a template</p>
         <div className="flex flex-wrap justify-center gap-2">
           {TEMPLATES.map((t) => (
-            <button
-              key={t.label}
-              onClick={() => setInput(t.prompt)}
-              className="rounded-full border border-[#15110c]/12 bg-white px-3 py-1.5 text-sm text-[#15110c]/75 transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]"
-            >
+            <button key={t.label} onClick={() => setInput(t.prompt)} className="rounded-full border border-[#15110c]/12 bg-white px-3 py-1.5 text-sm text-[#15110c]/75 transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">
               {t.label}
             </button>
           ))}
@@ -378,23 +337,18 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
           className="w-full resize-none rounded-xl bg-transparent p-3 text-left text-[15px] outline-none placeholder:text-[#15110c]/35"
         />
         <div className="flex flex-wrap items-center justify-between gap-3 px-1 pb-1">
-          <button
-            onClick={onImprove}
-            disabled={!canImprove}
-            title="Let AI sharpen your trip into a clear, complete brief"
-            className="rounded-xl border border-[#15110c]/15 px-3.5 py-2.5 text-sm font-medium text-[#15110c] transition active:scale-95 enabled:hover:border-[#e8643c] enabled:hover:text-[#e8643c] disabled:opacity-40"
-          >
+          <button onClick={onImprove} disabled={!canImprove} title="Let AI sharpen your trip into a clear, complete brief" className="rounded-xl border border-[#15110c]/15 px-3.5 py-2.5 text-sm font-medium text-[#15110c] transition active:scale-95 enabled:hover:border-[#e8643c] enabled:hover:text-[#e8643c] disabled:opacity-40">
             {improving ? "✨ Improving…" : "✨ Improve my brief"}
           </button>
           <button onClick={onGenerate} disabled={input.trim().length < 8} className="rounded-xl bg-[#15110c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 enabled:hover:bg-[#e8643c] disabled:opacity-40">See my plan — free →</button>
         </div>
       </div>
-      <p className="mt-3 text-xs text-[#15110c]/45 animate-rise">New to this? Pick a template, then hit <span className="font-medium text-[#15110c]/70">✨ Improve</span> to shape it — or just type and go.</p>
+      <p className="mt-3 text-xs text-[#15110c]/45 animate-rise">New here? Pick a template, then hit <span className="font-medium text-[#15110c]/70">✨ Improve</span> to shape it — or just type and go.</p>
 
       <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[#15110c]/50 animate-rise">
-        <span>✓ Hotels + tickets booked in-app</span>
+        <span>✓ A real plan in ~20 seconds</span>
         <span>✓ Every train under 2 hours</span>
-        <span>✓ Live agent during the trip</span>
+        <span>✓ First access to book it</span>
       </div>
     </section>
   );
@@ -407,7 +361,7 @@ function Generating({ step, trip }: { step: number; trip: Trip }) {
       <div className="mb-8 text-center">
         <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-[#e8643c] text-xl text-white animate-ring">✦</div>
         <p className="text-sm text-[#15110c]/55">
-          Your trip agent is building {trip.days} days in <span className="font-medium text-[#15110c]">{trip.destination}</span>
+          Building {trip.days} days in <span className="font-medium text-[#15110c]">{trip.destination}</span>
         </p>
       </div>
       <ul className="space-y-3">
@@ -426,7 +380,7 @@ function Generating({ step, trip }: { step: number; trip: Trip }) {
       {finishing && (
         <div className="mt-4 flex items-center justify-center gap-2 text-sm text-[#15110c]/50">
           <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#e8643c]/30 border-t-[#e8643c]" />
-          Composing your day-by-day plan…
+          Putting your day-by-day together…
         </div>
       )}
     </section>
@@ -435,17 +389,15 @@ function Generating({ step, trip }: { step: number; trip: Trip }) {
 
 /* ─────────────────────────── plan ─────────────────────────── */
 
-function Plan({ trip, days, isBooked, onBookHotel, onBuyTicket, onDirections, onCommit, onLead, onRestart }: {
-  trip: Trip; days: Day[]; isBooked: (l: string) => boolean;
-  onBookHotel: (h: Hotel) => void; onBuyTicket: (t: Ticket) => void; onDirections: (s: Stop) => void;
-  onCommit: () => void; onLead: () => void; onRestart: () => void;
+function Plan({ trip, days, onDirections, onCommit, onReserve, onRestart }: {
+  trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onCommit: () => void; onReserve: () => void; onRestart: () => void;
 }) {
   const legs = days.reduce((n, d) => n + d.tickets.length, 0);
   return (
     <section className="mx-auto max-w-3xl px-6 pb-40 pt-4 animate-fade">
       <div className="mb-6 flex items-center justify-between">
         <button onClick={onRestart} className="text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">← Start over</button>
-        <span className="text-xs text-[#15110c]/40">Free draft · prices estimated</span>
+        <span className="text-xs text-[#15110c]/40">Draft · prices are estimates</span>
       </div>
       <h2 className="text-3xl font-semibold tracking-tight animate-rise">{trip.days} days in {trip.destination}</h2>
       <p className="mt-2 text-[#15110c]/60 animate-rise">{trip.party} travellers · {trip.budget} · {trip.interests}</p>
@@ -456,24 +408,24 @@ function Plan({ trip, days, isBooked, onBookHotel, onBuyTicket, onDirections, on
       </div>
       <ol className="stagger mt-8 space-y-4">
         {days.map((d) => (
-          <PlanDay key={d.n} d={d} isBooked={isBooked} onBookHotel={onBookHotel} onBuyTicket={onBuyTicket} onDirections={onDirections} />
+          <PlanDay key={d.n} d={d} onDirections={onDirections} />
         ))}
       </ol>
       <StickyBar>
         <div className="text-sm">
-          <span className="font-semibold">Love this plan?</span>
-          <span className="text-[#15110c]/55"> Save it and get first access when booking opens.</span>
+          <span className="font-semibold">Want this trip?</span>
+          <span className="text-[#15110c]/55"> Reserve it — we&apos;ll email the plan and get you in first to book.</span>
         </div>
         <div className="flex gap-2">
-          <button onClick={onCommit} className="rounded-xl border border-[#15110c]/15 px-4 py-3 text-sm font-medium transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">Preview live companion →</button>
-          <button onClick={onLead} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">✉️ Email me this plan</button>
+          <button onClick={onCommit} className="rounded-xl border border-[#15110c]/15 px-4 py-3 text-sm font-medium transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">See it live →</button>
+          <button onClick={onReserve} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Reserve my trip</button>
         </div>
       </StickyBar>
     </section>
   );
 }
 
-function PlanDay({ d, isBooked, onBookHotel, onBuyTicket, onDirections }: { d: Day; isBooked: (l: string) => boolean; onBookHotel: (h: Hotel) => void; onBuyTicket: (t: Ticket) => void; onDirections: (s: Stop) => void }) {
+function PlanDay({ d, onDirections }: { d: Day; onDirections: (s: Stop) => void }) {
   return (
     <li className="overflow-hidden rounded-2xl border border-[#15110c]/10 bg-white transition hover:shadow-[0_12px_40px_-18px_rgba(0,0,0,0.25)]">
       <div className="flex items-baseline justify-between gap-4 border-b border-[#15110c]/8 px-5 py-3">
@@ -481,11 +433,10 @@ function PlanDay({ d, isBooked, onBookHotel, onBuyTicket, onDirections }: { d: D
         <span className="shrink-0 text-xs text-[#1f9d6b]">longest leg {d.maxLeg}</span>
       </div>
       <div className="space-y-3 px-5 py-4">
-        {d.tickets.map((t, i) => {
-          const label = `${t.mode} ${t.from}→${t.to}`;
-          return <BookRow key={i} icon={t.icon} title={t.mode} sub={`${t.from} → ${t.to} · ${t.depart}–${t.arrive} · ${t.dur} · ${t.price}`} flag={t.flag} cta="Buy ticket" booked={isBooked(label)} onClick={() => onBuyTicket(t)} />;
-        })}
-        <BookRow icon="🏨" title={d.hotel.name} sub={`★ ${d.hotel.rating} · ${d.hotel.walk} · ${d.hotel.price}`} cta="Book hotel" booked={isBooked(`Hotel: ${d.hotel.name}`)} onClick={() => onBookHotel(d.hotel)} />
+        {d.tickets.map((t, i) => (
+          <InfoRow key={i} icon={t.icon} title={t.mode} sub={`${t.from} → ${t.to} · ${t.depart}–${t.arrive} · ${t.dur} · ~${t.price}`} flag={t.flag} />
+        ))}
+        <InfoRow icon="🏨" title={d.hotel.name} sub={`★ ${d.hotel.rating} · ${d.hotel.walk} · ~${d.hotel.price}`} />
         <ol className="mt-1 space-y-3 border-l border-[#15110c]/10 pl-4">
           {d.stops.map((s, i) => (
             <li key={i} className="relative">
@@ -498,6 +449,7 @@ function PlanDay({ d, isBooked, onBookHotel, onBuyTicket, onDirections }: { d: D
                 ↳ {s.directions}{" "}
                 <button onClick={() => onDirections(s)} className="font-medium text-[#e8643c] underline-offset-2 hover:underline">directions ↗</button>
               </p>
+              {s.tip && <p className="mt-1 text-xs text-[#15110c]/55">💡 {s.tip}</p>}
             </li>
           ))}
         </ol>
@@ -507,19 +459,12 @@ function PlanDay({ d, isBooked, onBookHotel, onBuyTicket, onDirections }: { d: D
   );
 }
 
-function BookRow({ icon, title, sub, flag, cta, booked, onClick }: { icon: string; title: string; sub: string; flag?: string; cta: string; booked: boolean; onClick: () => void }) {
+function InfoRow({ icon, title, sub, flag }: { icon: string; title: string; sub: string; flag?: string }) {
   return (
-    <div className={`rounded-xl border px-4 py-3 transition ${booked ? "border-[#1f9d6b]/30 bg-[#1f9d6b]/5" : "border-[#15110c]/10 bg-[#faf7f2]"}`}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 text-sm">
-          <div className="truncate font-medium">{icon} {title}</div>
-          <div className="mt-1 text-xs text-[#15110c]/55">{sub}</div>
-        </div>
-        {booked ? (
-          <span className="flex shrink-0 items-center gap-1 rounded-lg bg-[#1f9d6b]/15 px-3 py-1.5 text-xs font-semibold text-[#1f9d6b] animate-pop">✓ Added</span>
-        ) : (
-          <button onClick={onClick} className="shrink-0 rounded-lg bg-[#15110c] px-3 py-1.5 text-xs font-semibold text-white transition active:scale-95 hover:bg-[#e8643c]">{cta}</button>
-        )}
+    <div className="rounded-xl border border-[#15110c]/10 bg-[#faf7f2] px-4 py-3">
+      <div className="min-w-0 text-sm">
+        <div className="truncate font-medium">{icon} {title}</div>
+        <div className="mt-1 text-xs text-[#15110c]/55">{sub}</div>
       </div>
       {flag && <div className="mt-1 text-xs text-[#1f9d6b]">✓ {flag}</div>}
     </div>
@@ -528,7 +473,7 @@ function BookRow({ icon, title, sub, flag, cta, booked, onClick }: { icon: strin
 
 /* ─────────────────────────── live ─────────────────────────── */
 
-function Live({ trip, days, onDirections, onReflow, onDeposit, onBack }: { trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onReflow: () => void; onDeposit: () => void; onBack: () => void }) {
+function Live({ trip, days, onDirections, onReflow, onReserve, onBack }: { trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onReflow: () => void; onReserve: () => void; onBack: () => void }) {
   const dayIndex = Math.max(1, Math.min(MOCK_DAY, days.length));
   const today = days[dayIndex - 1];
   const now = toMin(MOCK_NOW);
@@ -542,25 +487,25 @@ function Live({ trip, days, onDirections, onReflow, onDeposit, onBack }: { trip:
     <section className="mx-auto max-w-2xl px-6 pb-32 pt-2 animate-fade">
       <div className="mb-5 flex items-center justify-between">
         <button onClick={onBack} className="text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">← Back to plan</button>
-        <span className="font-mono text-xs text-[#15110c]/45">now {MOCK_NOW}</span>
+        <span className="font-mono text-xs text-[#15110c]/45">a preview of day {dayIndex}</span>
       </div>
 
       <div className="rounded-2xl border border-[#15110c]/10 bg-white p-5 animate-rise">
         <div className="flex items-center justify-between text-sm">
-          <span className="font-semibold text-[#1f9d6b]">✓ You committed to this trip</span>
+          <span className="font-semibold">Here&apos;s how a day feels on the ground</span>
           <span className="text-[#15110c]/50">Day {dayIndex} of {days.length}</span>
         </div>
         <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#15110c]/8">
           <div className="h-full rounded-full bg-[#e8643c] transition-all duration-700" style={{ width: `${progress}%` }} />
         </div>
-        <p className="mt-2 text-xs text-[#15110c]/50">{trip.destination} · {today.city} today · {progress}% through your trip</p>
+        <p className="mt-2 text-xs text-[#15110c]/50">{trip.destination} · {today.city} · the app keeps you on track in real time</p>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-[#15110c]/10 bg-white p-5 animate-rise">
           <div className="text-xs font-medium uppercase tracking-wide text-[#15110c]/40">📍 You&apos;re here</div>
           <div className="mt-1 font-semibold">{current.place}</div>
-          <div className="mt-1 text-xs text-[#15110c]/55">{today.city}, located just now</div>
+          <div className="mt-1 text-xs text-[#15110c]/55">{today.city}</div>
         </div>
         <div className="rounded-2xl border border-[#15110c]/10 bg-white p-5 animate-rise">
           <div className="text-xs font-medium uppercase tracking-wide text-[#15110c]/40">🎯 You should be</div>
@@ -599,189 +544,92 @@ function Live({ trip, days, onDirections, onReflow, onDeposit, onBack }: { trip:
 
       <StickyBar narrow>
         <div className="text-sm">
-          <span className="font-semibold">Plans change.</span>
-          <span className="text-[#15110c]/55"> The agent re-flows your day around where you actually are.</span>
+          <span className="font-semibold">Like the sound of this?</span>
+          <span className="text-[#15110c]/55"> Reserve your trip and be first to book it all.</span>
         </div>
         <div className="flex gap-2">
           <button onClick={onReflow} className="rounded-xl border border-[#15110c]/15 px-4 py-3 text-sm font-medium transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">Re-flow my day</button>
-          <button onClick={onDeposit} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Get it all booked — {config.price}</button>
+          <button onClick={onReserve} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Reserve my trip</button>
         </div>
       </StickyBar>
     </section>
   );
 }
 
-/* ─────────────────────────── deposit checkout (Stripe) ─────────────────────────── */
+/* ─────────────────────────── reserve + confirmation ─────────────────────────── */
 
-function DepositSheet({ nights, legs, onClose, onPaid }: { nights: number; legs: number; onClose: () => void; onPaid: () => void }) {
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [simulated, setSimulated] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let on = true;
-    (async () => {
-      try {
-        const r = await fetch("/api/payment-intent", { method: "POST" });
-        const d = await r.json();
-        if (!on) return;
-        if (d.clientSecret && stripePromise) setClientSecret(d.clientSecret);
-        else setSimulated(true);
-      } catch {
-        if (on) setSimulated(true);
-      } finally {
-        if (on) setLoading(false);
-      }
-    })();
-    return () => {
-      on = false;
-    };
-  }, []);
-
-  const finish = () => {
-    onPaid();
-    setTimeout(onClose, 1100);
-  };
-
-  return (
-    <Sheet onClose={onClose}>
-      <h3 className="text-lg font-semibold">Book your whole trip</h3>
-      <p className="mt-0.5 text-sm text-[#15110c]/55">{nights} nights · {legs} transport legs · all activities</p>
-      <ul className="mt-4 space-y-2 rounded-xl border border-[#15110c]/10 bg-[#faf7f2] p-4 text-sm">
-        <li className="flex justify-between"><span className="text-[#15110c]/75">{nights} hotel nights, near stations</span></li>
-        <li className="flex justify-between"><span className="text-[#15110c]/75">{legs} train & transfer tickets</span></li>
-        <li className="flex justify-between"><span className="text-[#15110c]/75">Activities & live companion</span></li>
-        <li className="flex justify-between font-medium text-[#1f9d6b]"><span>Refund if we miss a rule</span></li>
-      </ul>
-      <div className="mt-4 flex items-center justify-between text-sm">
-        <span className="text-[#15110c]/55">Total</span>
-        <span className="text-lg font-semibold">{config.price}</span>
-      </div>
-
-      {loading ? (
-        <div className="mt-4 h-28 w-full skeleton rounded-xl" />
-      ) : clientSecret && stripePromise ? (
-        <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "flat", variables: { colorPrimary: "#e8643c", borderRadius: "12px" } } }}>
-          <StripePay onDone={finish} />
-        </Elements>
-      ) : (
-        <SimulatedPay onDone={finish} />
-      )}
-      <p className="mt-3 text-center text-xs text-[#15110c]/40">🔒 Encrypted · full refund if we miss a rule you set{simulated ? " · demo mode" : ""}</p>
-    </Sheet>
-  );
-}
-
-function StripePay({ onDone }: { onDone: () => void }) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [status, setStatus] = useState<"form" | "processing" | "done">("form");
-  const [err, setErr] = useState<string | null>(null);
-
-  async function pay() {
-    if (!stripe || !elements) return;
-    setStatus("processing");
-    setErr(null);
-    const { error } = await stripe.confirmPayment({
-      elements,
-      redirect: "if_required",
-      confirmParams: { return_url: window.location.href },
-    });
-    if (error) {
-      setErr(error.message ?? "Payment failed");
-      setStatus("form");
-    } else {
-      setStatus("done");
-      onDone();
-    }
-  }
-
-  if (status === "done") return <PaidBlock />;
-  return (
-    <div className="mt-4">
-      <PaymentElement options={{ defaultValues: { billingDetails: { address: { country: "ID" } } } }} />
-      {err && <p className="mt-2 text-xs text-[#e8643c]">{err}</p>}
-      <button onClick={pay} disabled={!stripe || status === "processing"} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-70">
-        {status === "processing" ? (<><Spinner /> Processing…</>) : (<>Pay {config.price}</>)}
-      </button>
-    </div>
-  );
-}
-
-function SimulatedPay({ onDone }: { onDone: () => void }) {
-  const [status, setStatus] = useState<"form" | "processing" | "done">("form");
-  async function pay() {
-    setStatus("processing");
-    await delay(1300);
-    setStatus("done");
-    onDone();
-  }
-  if (status === "done") return <PaidBlock />;
-  return (
-    <div className="mt-4">
-      <div className="flex items-center gap-3 rounded-xl border border-[#15110c]/10 px-4 py-3 text-sm">
-        <span className="text-lg">💳</span>
-        <span className="text-[#15110c]/70">Visa •••• 4242</span>
-        <span className="ml-auto text-xs text-[#15110c]/40">change</span>
-      </div>
-      <button onClick={pay} disabled={status === "processing"} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-70">
-        {status === "processing" ? (<><Spinner /> Processing…</>) : (<>Pay {config.price}</>)}
-      </button>
-    </div>
-  );
-}
-
-function PaidBlock() {
-  return (
-    <div className="py-6 text-center">
-      <SuccessCheck />
-      <h3 className="mt-4 text-xl font-semibold">Confirmed</h3>
-      <p className="mt-1 text-sm text-[#15110c]/55">A confirmation is in your trip wallet.</p>
-    </div>
-  );
-}
-
-/* ─────────────────────────── lead capture ─────────────────────────── */
-
-function EmailCapture({ destination, onSubmit, onClose }: { destination?: string; onSubmit: (email: string) => Promise<boolean>; onClose: () => void }) {
+function ReserveSheet({ destination, onSubmit, onClose }: { destination?: string; onSubmit: (email: string) => Promise<void>; onClose: () => void }) {
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"form" | "saving" | "done">("form");
+  const [saving, setSaving] = useState(false);
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   async function submit() {
-    if (!valid || status !== "form") return;
-    setStatus("saving");
+    if (!valid || saving) return;
+    setSaving(true);
     await onSubmit(email);
-    setStatus("done");
-    setTimeout(onClose, 1600);
   }
   return (
-    <Sheet onClose={status === "form" ? onClose : undefined}>
-      {status === "done" ? (
-        <div className="py-6 text-center">
-          <SuccessCheck />
-          <h3 className="mt-4 text-xl font-semibold">You&apos;re on the list</h3>
-          <p className="mt-1 text-sm text-[#15110c]/55">We&apos;ll email your {destination ?? "trip"} plan and get you in first when booking opens.</p>
-        </div>
-      ) : (
-        <>
-          <h3 className="text-lg font-semibold">Get early access</h3>
-          <p className="mt-1 text-sm text-[#15110c]/55">We&apos;ll send this {destination ?? "trip"} plan to your inbox and reserve you a spot when booking opens — be first in line.</p>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-            placeholder="you@email.com"
-            autoFocus
-            className="mt-4 w-full rounded-xl border border-[#15110c]/12 px-4 py-3 text-sm outline-none focus:border-[#e8643c]"
-          />
-          <button onClick={submit} disabled={!valid || status === "saving"} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-50">
-            {status === "saving" ? (<><Spinner /> Saving…</>) : (<>Email me my plan + get early access</>)}
-          </button>
-          <p className="mt-3 text-center text-xs text-[#15110c]/40">No spam. We&apos;ll only email about your trip and launch.</p>
-        </>
-      )}
+    <Sheet onClose={saving ? undefined : onClose}>
+      <h3 className="text-lg font-semibold">Reserve your {destination ?? "trip"}</h3>
+      <p className="mt-1 text-sm text-[#15110c]/55">
+        We&apos;re opening booking to a small group first. Drop your email — we&apos;ll send this plan and let you know the moment you can book it in-app.
+      </p>
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="you@email.com"
+        autoFocus
+        className="mt-4 w-full rounded-xl border border-[#15110c]/12 px-4 py-3 text-sm outline-none focus:border-[#e8643c]"
+      />
+      <button onClick={submit} disabled={!valid || saving} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-50">
+        {saving ? (<><Spinner /> Reserving…</>) : (<>Reserve my spot</>)}
+      </button>
+      <p className="mt-3 text-center text-xs text-[#15110c]/40">No spam — just your plan and a heads-up when booking opens.</p>
     </Sheet>
+  );
+}
+
+function Reserved({ trip, days, email, onShare, onRestart }: { trip: Trip; days: Day[]; email: string; onShare: () => void; onRestart: () => void }) {
+  const steps = [
+    ["Your plan, in your inbox", `We're sending the full ${trip.destination} itinerary to ${email}.`],
+    ["We line up the real prices", "When booking opens, we pull live flight + hotel prices for your dates — no guesswork."],
+    ["You book first", "Early-access travelers get to book the whole trip in-app before anyone else."],
+  ];
+  return (
+    <section className="mx-auto max-w-xl px-6 pb-24 pt-10 text-center animate-fade">
+      <SuccessCheck />
+      <h2 className="mt-5 text-3xl font-semibold tracking-tight">You&apos;re in.</h2>
+      <p className="mx-auto mt-3 max-w-md text-[#15110c]/65">
+        Your {trip.days}-day {trip.destination} trip is reserved. We&apos;ll email it to <span className="font-medium text-[#15110c]">{email}</span> and tell you the moment booking opens.
+      </p>
+
+      <div className="mt-7 rounded-2xl border border-[#15110c]/10 bg-white p-5 text-left">
+        <div className="text-sm font-semibold">{trip.days} days in {trip.destination}</div>
+        <div className="mt-1 text-xs text-[#15110c]/55">{trip.party} travellers · {trip.budget} · {days.length} nights near stations</div>
+      </div>
+
+      <h3 className="mt-8 text-sm font-medium uppercase tracking-wide text-[#15110c]/40">What happens next</h3>
+      <ol className="mt-3 space-y-3 text-left">
+        {steps.map(([t, d], i) => (
+          <li key={t} className="flex gap-3 rounded-xl border border-[#15110c]/10 bg-white p-4">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#15110c] text-xs font-semibold text-white">{i + 1}</span>
+            <div>
+              <div className="text-sm font-medium">{t}</div>
+              <div className="mt-0.5 text-xs text-[#15110c]/55">{d}</div>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-8 rounded-2xl bg-[#15110c] p-5 text-left text-white">
+        <div className="text-sm font-semibold">Know someone planning {trip.destination}?</div>
+        <p className="mt-1 text-sm text-white/70">Send them their own plan in 20 seconds. It genuinely helps us open booking sooner.</p>
+        <button onClick={onShare} className="mt-3 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#15110c] transition active:scale-95 hover:bg-white/90">Share Tripcraft</button>
+      </div>
+
+      <button onClick={onRestart} className="mt-6 text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">Plan another trip →</button>
+    </section>
   );
 }
 
@@ -844,7 +692,7 @@ function AgentPanel({ msgs, busy, onSend, onClose }: { msgs: Msg[]; busy: boolea
   const [text, setText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => { scrollRef.current?.scrollTo({ top: 9e9, behavior: "smooth" }); }, [msgs]);
-  const chips = ["I'm running late", "Make it more relaxed", "Find cheaper hotels", "Book everything"];
+  const chips = ["I'm running late", "Make it more relaxed", "Find cheaper hotels", "Reserve my trip"];
   function submit() { if (!text.trim()) return; onSend(text); setText(""); }
   return (
     <div className="fixed bottom-0 right-0 z-40 flex h-[78vh] w-full flex-col border-l border-t border-[#15110c]/10 bg-white shadow-2xl animate-sheet sm:bottom-[88px] sm:right-5 sm:h-[560px] sm:w-[380px] sm:rounded-2xl sm:border">
@@ -858,7 +706,7 @@ function AgentPanel({ msgs, busy, onSend, onClose }: { msgs: Msg[]; busy: boolea
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
         {msgs.length === 0 && (
           <div className="rounded-xl bg-[#faf7f2] p-4 text-sm text-[#15110c]/70">
-            Hi — I&apos;m your live trip agent. I can re-flow your days, swap hotels to hit budget, book everything in one go, or guide you on the ground.
+            Hi — ask me to re-flow your days, swap hotels to hit budget, or get you early access to book.
           </div>
         )}
         {msgs.map((m) => (m.role === "user" ? (
@@ -936,9 +784,9 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 function HowItWorks() {
   const steps = [
-    ["Tell us in plain words", "Dates, budget, who's coming, your non-negotiables. No forms to fight."],
-    ["We book the whole thing", "Hotels by the station, every train and ticket under 2h, balanced to budget — all in-app."],
-    ["The agent guides you live", "A day-by-day that knows where you are, what's next, and re-flows when plans change."],
+    ["Tell us in plain words", "Dates, budget, who's coming, your dealbreakers. No forms."],
+    ["We plan the whole thing", "Hotels by the station, every train under 2 hours, balanced to your budget — door to door."],
+    ["Reserve and book first", "Save your plan and get early access to book it all in-app, then a live guide for each day."],
   ];
   return (
     <section className="mx-auto max-w-3xl px-6 py-16">
@@ -957,5 +805,5 @@ function HowItWorks() {
 }
 
 function Footer() {
-  return <footer className="mx-auto max-w-5xl px-6 py-10 text-center text-xs text-[#15110c]/40">{config.brandName} · planned by humans, supercharged by AI</footer>;
+  return <footer className="mx-auto max-w-5xl px-6 py-10 text-center text-xs text-[#15110c]/40">{config.brandName} — trips that respect the rules you actually care about.</footer>;
 }
