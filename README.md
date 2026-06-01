@@ -1,36 +1,24 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Tripcraft
 
-## Getting Started
+Describe a trip in plain language → a constraint-perfect, day-by-day itinerary you can book in-app, plus a live day-of companion.
 
-First, run the development server:
+- **Plan** — Claude turns "14 days in Japan, 3 people, IDR 65M, hotels near stations, no train over 2h" into a real itinerary (hotels, tickets, stops, directions).
+- **Book** — in-app Stripe deposit (Payment Element, no redirect).
+- **Live companion** — where you are vs. where the plan says you should be, next move, re-flow when plans change.
 
+## Stack
+Next.js (App Router) · Tailwind v4 · Claude (`claude-haiku-4-5`) · Stripe · Firebase (anon auth + Firestore) · Vercel.
+
+Every integration degrades gracefully: with no keys, the app runs on canned itineraries + simulated checkout + no persistence, and lights up each capability as its keys land.
+
+## Setup
 ```bash
+npm install
+cp .env.local.example .env.local   # fill in what you have (all optional)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Stripe pricing (one-time, creates a Product + Price in your Stripe account):
+```bash
+node --env-file=.env.local scripts/setup-stripe.mjs
+```

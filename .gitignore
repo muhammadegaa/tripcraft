@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.gstack/
+
+# keep the env template in the repo (real .env.local stays ignored)
+!.env.local.example
