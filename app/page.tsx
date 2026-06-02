@@ -25,8 +25,6 @@ const TEMPLATES = [
   { label: "🇰🇷 Seoul + Busan", prompt: "6 days in South Korea, 2 friends, about $1,800. Seoul then Busan by KTX. Korean BBQ, cafes, palaces, hotels right by the subway." },
   { label: "👨‍👩‍👧 Family Europe", prompt: "7 days in Europe with two kids (6 and 9), around €6,000. Easy pace, a castle or a theme park, kid-friendly food, central hotels, short transfers only." },
 ];
-const MOCK_DAY = 3;
-const MOCK_NOW = "11:05";
 
 type Phase = "input" | "generating" | "plan" | "live" | "reserved" | "booking" | "trips";
 type SavedTrip = { id: string; trip?: Trip; days?: Day[]; status?: string; updatedAt?: unknown };
@@ -72,6 +70,9 @@ function newId() {
     return `t_${Date.now()}`;
   }
 }
+function mapsUrl(place: string) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place)}`;
+}
 
 export default function Page() {
   const [phase, setPhase] = useState<Phase>("input");
@@ -87,10 +88,6 @@ export default function Page() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [onboarded, setOnboarded] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [directions, setDirections] = useState<Stop | null>(null);
-  const [agentOpen, setAgentOpen] = useState(false);
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [busy, setBusy] = useState(false);
   const [improving, setImproving] = useState(false);
   const [user, setUser] = useState<TripUser | null>(null);
   const [trips, setTrips] = useState<SavedTrip[]>([]);
@@ -199,9 +196,23 @@ export default function Page() {
         body: JSON.stringify({ input: brief }),
       });
       const data = await res.json();
-      setPendingDays(data?.days?.length ? data.days : generate(t));
+      // Be honest: if real generation didn't happen, show an error and let the
+      // user retry. Never present a canned fallback as a real plan.
+      if (data?.source === "claude" && data.days?.length) {
+        setPendingDays(data.days);
+      } else if (data?.source === "rate_limited") {
+        track("generate_rate_limited");
+        pushToast("A bit too many requests. Give it a minute and try again.", "⚠️");
+        setPhase("input");
+      } else {
+        track("generate_failed", { source: data?.source });
+        pushToast("We couldn't build your plan right now. Please try again in a moment.", "⚠️");
+        setPhase("input");
+      }
     } catch {
-      setPendingDays(generate(t));
+      track("generate_error");
+      pushToast("Something went wrong building your plan. Please try again.", "⚠️");
+      setPhase("input");
     }
   }
 
@@ -256,24 +267,10 @@ export default function Page() {
     setTimeout(burstConfetti, 250);
   }
 
-  function commit() {
-    track("preview_live", { destination: trip?.destination });
-    setPhase("live");
-  }
-
-  function reflowToday() {
-    setDays((ds) =>
-      ds.map((d, i) =>
-        i === MOCK_DAY - 1 ? { ...d, stops: d.stops.map((s, si) => (si > 0 ? { ...s, time: addMin(s.time, 30) } : s)) } : d
-      )
-    );
-    pushToast("Day re-flowed around your location", "✦");
-  }
-
   function shareTrip() {
     track("share_click");
     const url = typeof window !== "undefined" ? window.location.origin : "";
-    const text = `I just planned my ${trip?.destination ?? "trip"} on Tripcraft. You describe your trip and it builds the whole thing, hotels by the station and no long trains. Try it:`;
+    const text = `I just planned my ${trip?.destination ?? "trip"} on Tripcraft. Describe your trip and it builds the whole thing, with real places, photos and directions. Try it:`;
     if (typeof navigator !== "undefined" && navigator.share) {
       navigator.share({ title: "Tripcraft", text, url }).catch(() => {});
     } else if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -281,80 +278,15 @@ export default function Page() {
     }
   }
 
-  function decide(textRaw: string): { steps: string[]; reply: string; action?: () => void } {
-    const t = textRaw.toLowerCase();
-    const city = trip ? days[0]?.city : "";
-    if (/(late|behind|re-?flow|delay|slow down|catch up)/.test(t))
-      return {
-        steps: ["Reading your live location…", "Recalculating today's timings…", "Protecting your 17:30 plan"],
-        reply: "Done. I pushed your afternoon back 30 minutes and kept your evening locked in. No need to rush.",
-        action: reflowToday,
-      };
-    if (/(relax|chill|less|lighter|tired|easy)/.test(t))
-      return {
-        steps: ["Reviewing your pacing…", "Finding the busiest day", "Loosening the schedule"],
-        reply: "I lightened your busiest day: fewer stops, longer meals, a slow afternoon. Want that across the whole trip?",
-      };
-    if (/(cheap|budget|save|afford|expensive)/.test(t))
-      return {
-        steps: ["Comparing nearby hotels…", "Checking station distance & ratings", "Swapping 2 stays"],
-        reply: "Swapped two hotels for 4.5★ ones still 5 minutes from the station, roughly IDR 6jt under budget. Want me to keep those?",
-      };
-    if (/(email|save|inbox|remind|later)/.test(t))
-      return {
-        steps: [],
-        reply: "Done. I'll email this plan and keep it saved so you can pick up right where you left off.",
-        action: openReserve,
-      };
-    if (/(book|flight|ticket|pay|buy|confirm)/.test(t))
-      return {
-        steps: ["Pulling live fares for your dates…"],
-        reply: "Let's book it. Taking you to flights now, with real fares for your trip.",
-        action: goBooking,
-      };
-    if (/(food|eat|restaurant|ramen|sushi|hungry|dinner)/.test(t))
-      return {
-        steps: ["Scanning your food days…", "Matching to your taste"],
-        reply: `In ${city || "your trip"} I'd hit the spot by your hotel tonight, then the market tasting tomorrow. Want those pinned?`,
-      };
-    return {
-      steps: [],
-      reply: "I can re-flow your days, swap hotels to hit budget, or get you early access to book. What would help?",
-    };
-  }
-
-  async function send(textRaw: string) {
-    const text = textRaw.trim();
-    if (!text || busy) return;
-    setAgentOpen(true);
-    setBusy(true);
-    setMsgs((m) => [...m, { id: nextId(), role: "user", text }]);
-    track("agent_message");
-    const aId = nextId();
-    setMsgs((m) => [...m, { id: aId, role: "agent", pending: true, steps: [] }]);
-    const plan = decide(text);
-    for (const s of plan.steps) {
-      await delay(560);
-      setMsgs((m) => m.map((x) => (x.id === aId ? { ...x, steps: [...(x.steps ?? []), s] } : x)));
-    }
-    await delay(plan.steps.length ? 420 : 650);
-    setMsgs((m) => m.map((x) => (x.id === aId ? { ...x, pending: false, text: plan.reply } : x)));
-    plan.action?.();
-    setBusy(false);
-  }
-
   function restart() {
     setPhase("input");
     setInput("");
-    setMsgs([]);
     setReservedEmail("");
   }
 
-  const showAgent = phase === "plan" || phase === "live";
-
   return (
     <main className="min-h-screen bg-[#faf7f2] text-[#15110c]">
-      <Nav live={phase === "live"} user={user} onSignIn={signIn} onSignOut={signOut} onMyTrips={openTrips} onHome={restart} />
+      <Nav user={user} onSignIn={signIn} onSignOut={signOut} onMyTrips={openTrips} onHome={restart} />
 
       {phase === "input" && (
         <div className="animate-fade">
@@ -364,13 +296,10 @@ export default function Page() {
       )}
       {phase === "generating" && <Generating step={step} trip={trip!} />}
       {phase === "plan" && (
-        <Plan trip={trip!} days={days} onDirections={setDirections} onCommit={commit} onBooking={goBooking} onReserve={openReserve} onRestart={restart} />
-      )}
-      {phase === "live" && (
-        <Live trip={trip!} days={days} onDirections={setDirections} onReflow={() => send("I'm running late")} onBooking={goBooking} onBack={() => setPhase("plan")} />
+        <Plan trip={trip!} days={days} onBooking={goBooking} onReserve={openReserve} onRestart={restart} />
       )}
       {phase === "booking" && (
-        <Booking trip={trip!} email={reservedEmail} onBack={() => setPhase("plan")} />
+        <Booking trip={trip!} days={days} onBack={() => setPhase("plan")} />
       )}
       {phase === "trips" && (
         <TripsDashboard trips={trips} loading={tripsLoading} onOpen={openSavedTrip} onNew={restart} />
@@ -379,12 +308,8 @@ export default function Page() {
         <Reserved trip={trip!} days={days} email={reservedEmail} onShare={shareTrip} onRestart={restart} />
       )}
 
-      {showAgent && <AgentFab open={agentOpen} onToggle={() => setAgentOpen((v) => !v)} />}
-      {showAgent && agentOpen && <AgentPanel msgs={msgs} busy={busy} onSend={send} onClose={() => setAgentOpen(false)} />}
-
       {profileOpen && <ProfileModal onSubmit={submitProfile} onSkip={skipProfile} />}
       {reserveOpen && <ReserveSheet destination={trip?.destination} onSubmit={submitReserve} onClose={() => setReserveOpen(false)} />}
-      {directions && <Directions stop={directions} onClose={() => setDirections(null)} />}
       <Toaster toasts={toasts} />
       <Footer />
     </main>
@@ -393,7 +318,7 @@ export default function Page() {
 
 /* ─────────────────────────── chrome ─────────────────────────── */
 
-function Nav({ live, user, onSignIn, onSignOut, onMyTrips, onHome }: { live: boolean; user: TripUser | null; onSignIn: () => void; onSignOut: () => void; onMyTrips: () => void; onHome: () => void }) {
+function Nav({ user, onSignIn, onSignOut, onMyTrips, onHome }: { user: TripUser | null; onSignIn: () => void; onSignOut: () => void; onMyTrips: () => void; onHome: () => void }) {
   return (
     <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
       <button onClick={onHome} className="flex items-center gap-2 font-semibold tracking-tight">
@@ -401,7 +326,6 @@ function Nav({ live, user, onSignIn, onSignOut, onMyTrips, onHome }: { live: boo
         {config.brandName}
       </button>
       <div className="flex items-center gap-3">
-        {live && <span className="hidden items-center gap-1.5 rounded-full border border-[#15110c]/10 bg-white px-3 py-1 text-xs font-medium text-[#15110c]/70 sm:flex"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1f9d6b]" />Live companion</span>}
         {user ? (
           <>
             <button onClick={onMyTrips} className="text-sm font-medium text-[#15110c]/70 transition hover:text-[#e8643c]">My trips</button>
@@ -551,8 +475,8 @@ function Generating({ step, trip }: { step: number; trip: Trip }) {
 
 /* ─────────────────────────── plan ─────────────────────────── */
 
-function Plan({ trip, days, onDirections, onCommit, onBooking, onReserve, onRestart }: {
-  trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onCommit: () => void; onBooking: () => void; onReserve: () => void; onRestart: () => void;
+function Plan({ trip, days, onBooking, onReserve, onRestart }: {
+  trip: Trip; days: Day[]; onBooking: () => void; onReserve: () => void; onRestart: () => void;
 }) {
   const legs = days.reduce((n, d) => n + d.tickets.length, 0);
   return (
@@ -570,7 +494,7 @@ function Plan({ trip, days, onDirections, onCommit, onBooking, onReserve, onRest
       </div>
       <ol className="stagger mt-8 space-y-4">
         {days.map((d) => (
-          <PlanDay key={d.n} d={d} onDirections={onDirections} />
+          <PlanDay key={d.n} d={d} />
         ))}
       </ol>
       <button onClick={onReserve} className="mx-auto mt-8 block text-sm text-[#15110c]/45 transition hover:text-[#e8643c]">Not ready to book? Email me this plan instead →</button>
@@ -579,16 +503,13 @@ function Plan({ trip, days, onDirections, onCommit, onBooking, onReserve, onRest
           <span className="font-semibold">Ready to make it real?</span>
           <span className="text-[#15110c]/55"> Book your flights now, hotels next.</span>
         </div>
-        <div className="flex gap-2">
-          <button onClick={onCommit} className="rounded-xl border border-[#15110c]/15 px-4 py-3 text-sm font-medium transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">See it live →</button>
-          <button onClick={onBooking} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Continue to booking →</button>
-        </div>
+        <button onClick={onBooking} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Continue to booking →</button>
       </StickyBar>
     </section>
   );
 }
 
-function PlanDay({ d, onDirections }: { d: Day; onDirections: (s: Stop) => void }) {
+function PlanDay({ d }: { d: Day }) {
   return (
     <li className="overflow-hidden rounded-2xl border border-[#15110c]/10 bg-white transition hover:shadow-[0_12px_40px_-18px_rgba(0,0,0,0.25)]">
       <div className="flex items-baseline justify-between gap-4 border-b border-[#15110c]/8 px-5 py-3">
@@ -602,7 +523,7 @@ function PlanDay({ d, onDirections }: { d: Day; onDirections: (s: Stop) => void 
         <HotelRow hotel={d.hotel} city={d.city} />
         <ol className="mt-1 space-y-3">
           {d.stops.map((s, i) => (
-            <StopRow key={i} stop={s} onDirections={onDirections} />
+            <StopRow key={i} stop={s} />
           ))}
         </ol>
         <p className="pt-1 text-sm text-[#e8643c]">🍜 {d.food}</p>
@@ -666,7 +587,7 @@ function HotelRow({ hotel, city }: { hotel: Hotel; city: string }) {
   );
 }
 
-function StopRow({ stop, onDirections }: { stop: Stop; onDirections: (s: Stop) => void }) {
+function StopRow({ stop }: { stop: Stop }) {
   const d = usePlace(stop.place);
   return (
     <li className="flex gap-3">
@@ -679,7 +600,7 @@ function StopRow({ stop, onDirections }: { stop: Stop; onDirections: (s: Stop) =
         </div>
         <p className="mt-0.5 text-xs text-[#15110c]/55">
           ↳ {stop.directions}{" "}
-          <button onClick={() => onDirections(stop)} className="font-medium text-[#e8643c] underline-offset-2 hover:underline">directions ↗</button>
+          <a href={mapsUrl(stop.place)} target="_blank" rel="noreferrer" className="font-medium text-[#e8643c] underline-offset-2 hover:underline">open in Maps ↗</a>
         </p>
         {stop.tip && <p className="mt-1 text-xs text-[#15110c]/55">💡 {stop.tip}</p>}
       </div>
@@ -699,91 +620,93 @@ function InfoRow({ icon, title, sub, flag }: { icon: string; title: string; sub:
   );
 }
 
-/* ─────────────────────────── live ─────────────────────────── */
-
-function Live({ trip, days, onDirections, onReflow, onBooking, onBack }: { trip: Trip; days: Day[]; onDirections: (s: Stop) => void; onReflow: () => void; onBooking: () => void; onBack: () => void }) {
-  const dayIndex = Math.max(1, Math.min(MOCK_DAY, days.length));
-  const today = days[dayIndex - 1];
-  const now = toMin(MOCK_NOW);
-  const currentIdx = Math.max(0, today.stops.map((s) => toMin(s.time) <= now).lastIndexOf(true));
-  const current = today.stops[currentIdx];
-  const next = today.stops.find((s) => toMin(s.time) > now);
-  const minsToNext = next ? toMin(next.time) - now : 0;
-  const progress = Math.round((dayIndex / days.length) * 100);
-
+function Sheet({ children, onClose }: { children: React.ReactNode; onClose?: () => void }) {
   return (
-    <section className="mx-auto max-w-2xl px-6 pb-32 pt-2 animate-fade">
-      <div className="mb-5 flex items-center justify-between">
-        <button onClick={onBack} className="text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">← Back to plan</button>
-        <span className="font-mono text-xs text-[#15110c]/45">a preview of day {dayIndex}</span>
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      <div className="absolute inset-0 bg-black/30 animate-fade" onClick={onClose} />
+      <div className="animate-sheet relative max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-[#15110c]/10 bg-white p-6 shadow-2xl sm:rounded-3xl">
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#15110c]/15 sm:hidden" />
+        {children}
       </div>
+    </div>
+  );
+}
 
-      <div className="rounded-2xl border border-[#15110c]/10 bg-white p-5 animate-rise">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-semibold">Here&apos;s how a day feels on the ground</span>
-          <span className="text-[#15110c]/50">Day {dayIndex} of {days.length}</span>
+/* ─────────────────────────── primitives ─────────────────────────── */
+
+function StickyBar({ children, narrow }: { children: React.ReactNode; narrow?: boolean }) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#15110c]/10 bg-white/85 backdrop-blur">
+      <div className={`mx-auto flex ${narrow ? "max-w-2xl" : "max-w-3xl"} flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between`}>{children}</div>
+    </div>
+  );
+}
+
+function Toaster({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div className="fixed left-1/2 top-5 z-[70] flex -translate-x-1/2 flex-col items-center gap-2">
+      {toasts.map((t) => (
+        <div key={t.id} className="animate-toast flex items-center gap-2 rounded-full bg-[#15110c] px-4 py-2.5 text-sm font-medium text-white shadow-lg">
+          <span>{t.icon}</span>{t.text}
         </div>
-        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#15110c]/8">
-          <div className="h-full rounded-full bg-[#e8643c] transition-all duration-700" style={{ width: `${progress}%` }} />
-        </div>
-        <p className="mt-2 text-xs text-[#15110c]/50">{trip.destination} · {today.city} · the app keeps you on track in real time</p>
+      ))}
+    </div>
+  );
+}
+
+function SuccessCheck() {
+  return (
+    <svg width="56" height="56" viewBox="0 0 24 24" className="mx-auto animate-pop">
+      <circle cx="12" cy="12" r="11" fill="#1f9d6b" />
+      <path className="check-path" d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />;
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return <span className="rounded-full bg-[#1f9d6b]/10 px-3 py-1 text-xs font-medium text-[#1f9d6b]">{children}</span>;
+}
+
+function HowItWorks() {
+  const steps = [
+    ["Tell us in plain words", "Where you're going, your dates, budget, who's coming, your dealbreakers. No forms."],
+    ["We plan the whole thing", "Stays in the right neighbourhoods, no exhausting travel days, every booking inside your budget. Door to door."],
+    ["Reserve and book first", "Save your plan and get early access to book it all in-app, then a guide that travels with you."],
+  ];
+  return (
+    <section id="how" className="mx-auto max-w-3xl px-6 py-16">
+      <h2 className="text-center text-sm font-medium uppercase tracking-wide text-[#15110c]/40">How it works</h2>
+      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        {steps.map(([t, d], i) => (
+          <div key={t} className="rounded-2xl border border-[#15110c]/10 bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-[0_12px_40px_-18px_rgba(0,0,0,0.25)]">
+            <div className="mb-2 text-sm font-semibold text-[#e8643c]">{String(i + 1).padStart(2, "0")}</div>
+            <h3 className="font-semibold">{t}</h3>
+            <p className="mt-1 text-sm text-[#15110c]/60">{d}</p>
+          </div>
+        ))}
       </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-[#15110c]/10 bg-white p-5 animate-rise">
-          <div className="text-xs font-medium uppercase tracking-wide text-[#15110c]/40">📍 You&apos;re here</div>
-          <div className="mt-1 font-semibold">{current.place}</div>
-          <div className="mt-1 text-xs text-[#15110c]/55">{today.city}</div>
-        </div>
-        <div className="rounded-2xl border border-[#15110c]/10 bg-white p-5 animate-rise">
-          <div className="text-xs font-medium uppercase tracking-wide text-[#15110c]/40">🎯 You should be</div>
-          <div className="mt-1 font-semibold">{current.title}</div>
-          <div className="mt-1 text-xs text-[#1f9d6b]">On track · scheduled {current.time}</div>
-        </div>
-      </div>
-
-      {next && (
-        <div className="mt-4 rounded-2xl border border-[#e8643c]/30 bg-[#e8643c]/5 p-5 animate-rise">
-          <div className="text-xs font-medium uppercase tracking-wide text-[#e8643c]">Next up · in {minsToNext} min</div>
-          <div className="mt-1 text-lg font-semibold">{next.time} · {next.title}</div>
-          <p className="mt-1 text-sm text-[#15110c]/60">↳ {next.directions}</p>
-          <button onClick={() => onDirections(next)} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#e8643c] px-4 py-2 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a] animate-ring">Start walking directions ↗</button>
-        </div>
-      )}
-
-      <h3 className="mt-8 text-sm font-medium uppercase tracking-wide text-[#15110c]/40">Today · {today.area}</h3>
-      <ol className="mt-3 space-y-2">
-        {today.stops.map((s, i) => {
-          const state = i < currentIdx ? "done" : i === currentIdx ? "now" : "next";
-          return (
-            <li key={i} className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${state === "now" ? "border-[#e8643c]/40 bg-white" : "border-[#15110c]/10 bg-white"}`}>
-              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] ${state === "done" ? "bg-[#1f9d6b] text-white" : state === "now" ? "bg-[#e8643c] text-white" : "bg-[#15110c]/10 text-[#15110c]/40"}`}>{state === "done" ? "✓" : state === "now" ? "•" : "○"}</span>
-              <span className="font-mono text-xs text-[#15110c]/45">{s.time}</span>
-              <span className={state === "done" ? "text-[#15110c]/40 line-through" : ""}>{s.title}</span>
-            </li>
-          );
-        })}
-        <li className="flex items-center gap-3 rounded-xl border border-[#15110c]/10 bg-white px-4 py-3 text-sm">
-          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#15110c]/10 text-[11px] text-[#15110c]/40">○</span>
-          <span className="font-mono text-xs text-[#15110c]/45">tonight</span>
-          <span>🏨 {today.hotel.name}</span>
-        </li>
-      </ol>
-
-      <StickyBar narrow>
-        <div className="text-sm">
-          <span className="font-semibold">Like the sound of this?</span>
-          <span className="text-[#15110c]/55"> Reserve your trip and be first to book it all.</span>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={onReflow} className="rounded-xl border border-[#15110c]/15 px-4 py-3 text-sm font-medium transition active:scale-95 hover:border-[#e8643c] hover:text-[#e8643c]">Re-flow my day</button>
-          <button onClick={onBooking} className="rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Continue to booking →</button>
-        </div>
-      </StickyBar>
     </section>
   );
 }
 
+function Footer() {
+  return (
+    <footer className="mt-8 border-t border-[#15110c]/8">
+      <div className="mx-auto flex max-w-5xl flex-col items-center gap-3 px-6 py-12 text-center">
+        <div className="flex items-center gap-2 font-semibold tracking-tight">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e8643c] text-sm font-bold text-white">{config.brandName.charAt(0)}</span>
+          {config.brandName}
+        </div>
+        <p className="max-w-sm text-sm text-[#15110c]/55">Describe any trip and get a plan that respects the rules you actually care about. Anywhere in the world.</p>
+        <p className="mt-2 text-xs text-[#15110c]/35">© 2026 {config.brandName}</p>
+      </div>
+    </footer>
+  );
+}
 /* ─────────────────────────── onboarding (3-tap profile) ─────────────────────────── */
 
 function ProfileModal({ onSubmit, onSkip }: { onSubmit: (p: Profile) => void; onSkip: () => void }) {
@@ -919,188 +842,3 @@ function Reserved({ trip, days, email, onShare, onRestart }: { trip: Trip; days:
   );
 }
 
-/* ─────────────────────────── directions ─────────────────────────── */
-
-function Directions({ stop, onClose }: { stop: Stop; onClose: () => void }) {
-  const steps = ["Head out and follow the main pedestrian route", stop.directions, `Arrive at ${stop.place}`];
-  return (
-    <Sheet onClose={onClose}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Walking to {stop.title}</h3>
-        <span className="rounded-full bg-[#1f9d6b]/10 px-2.5 py-1 text-xs font-medium text-[#1f9d6b]">~8 min · 0.6 km</span>
-      </div>
-      <div className="relative mt-4 h-36 overflow-hidden rounded-xl border border-[#15110c]/10 bg-[#eef2f0]">
-        <div className="absolute inset-0 opacity-60" style={{ backgroundImage: "linear-gradient(#15110c11 1px,transparent 1px),linear-gradient(90deg,#15110c11 1px,transparent 1px)", backgroundSize: "22px 22px" }} />
-        <svg viewBox="0 0 320 144" className="absolute inset-0 h-full w-full">
-          <path d="M40 116 L120 96 L150 60 L250 40" fill="none" stroke="#e8643c" strokeWidth="4" strokeLinecap="round" strokeDasharray="2 10" />
-          <circle cx="40" cy="116" r="7" fill="#15110c" />
-          <circle cx="250" cy="40" r="8" fill="#e8643c" />
-        </svg>
-        <span className="absolute bottom-2 left-3 rounded bg-white/90 px-2 py-0.5 text-[11px] font-medium">You</span>
-        <span className="absolute right-3 top-2 rounded bg-[#e8643c] px-2 py-0.5 text-[11px] font-medium text-white">{stop.title}</span>
-      </div>
-      <ol className="mt-4 space-y-3">
-        {steps.map((s, i) => (
-          <li key={i} className="flex gap-3 text-sm">
-            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#15110c] text-xs font-semibold text-white">{i + 1}</span>
-            <span className="pt-0.5 text-[#15110c]/75">{s}</span>
-          </li>
-        ))}
-      </ol>
-      <button onClick={onClose} className="mt-5 w-full rounded-xl bg-[#15110c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#e8643c]">Got it</button>
-    </Sheet>
-  );
-}
-
-function Sheet({ children, onClose }: { children: React.ReactNode; onClose?: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <div className="absolute inset-0 bg-black/30 animate-fade" onClick={onClose} />
-      <div className="animate-sheet relative max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-[#15110c]/10 bg-white p-6 shadow-2xl sm:rounded-3xl">
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#15110c]/15 sm:hidden" />
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────────────── agent ─────────────────────────── */
-
-function AgentFab({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  return (
-    <button onClick={onToggle} className="fixed bottom-[88px] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#15110c] text-xl text-white shadow-[0_10px_30px_-8px_rgba(0,0,0,0.5)] transition active:scale-90 hover:bg-[#e8643c]" aria-label="Trip agent">
-      <span className={open ? "" : "animate-pulse"}>{open ? "✕" : "✦"}</span>
-    </button>
-  );
-}
-
-function AgentPanel({ msgs, busy, onSend, onClose }: { msgs: Msg[]; busy: boolean; onSend: (t: string) => void; onClose: () => void }) {
-  const [text, setText] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { scrollRef.current?.scrollTo({ top: 9e9, behavior: "smooth" }); }, [msgs]);
-  const chips = ["I'm running late", "Make it more relaxed", "Find cheaper hotels", "Book my flights"];
-  function submit() { if (!text.trim()) return; onSend(text); setText(""); }
-  return (
-    <div className="fixed bottom-0 right-0 z-40 flex h-[78vh] w-full flex-col border-l border-t border-[#15110c]/10 bg-white shadow-2xl animate-sheet sm:bottom-[88px] sm:right-5 sm:h-[560px] sm:w-[380px] sm:rounded-2xl sm:border">
-      <div className="flex items-center justify-between border-b border-[#15110c]/8 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e8643c] text-white">✦</span>
-          <div className="text-sm font-semibold">Trip agent</div>
-        </div>
-        <button onClick={onClose} className="text-[#15110c]/40 hover:text-[#15110c]">✕</button>
-      </div>
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
-        {msgs.length === 0 && (
-          <div className="rounded-xl bg-[#faf7f2] p-4 text-sm text-[#15110c]/70">
-            Hi! Ask me to re-flow your days, swap hotels to hit your budget, or get you early access to book.
-          </div>
-        )}
-        {msgs.map((m) => (m.role === "user" ? (
-          <div key={m.id} className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-[#15110c] px-3.5 py-2 text-sm text-white animate-rise">{m.text}</div>
-        ) : (
-          <div key={m.id} className="w-fit max-w-[90%] animate-rise">
-            {m.steps && m.steps.length > 0 && (
-              <ul className="mb-1.5 space-y-1">
-                {m.steps.map((s, i) => (<li key={i} className="flex items-center gap-2 text-xs text-[#15110c]/55"><span className="text-[#1f9d6b]">✓</span>{s}</li>))}
-              </ul>
-            )}
-            {m.pending ? (
-              <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm bg-[#faf7f2] px-3.5 py-3">
-                <span className="typing-dot h-1.5 w-1.5 rounded-full bg-[#15110c]/40" />
-                <span className="typing-dot h-1.5 w-1.5 rounded-full bg-[#15110c]/40" />
-                <span className="typing-dot h-1.5 w-1.5 rounded-full bg-[#15110c]/40" />
-              </div>
-            ) : (
-              <div className="rounded-2xl rounded-bl-sm bg-[#faf7f2] px-3.5 py-2.5 text-sm text-[#15110c]/85">{m.text}</div>
-            )}
-          </div>
-        )))}
-      </div>
-      <div className="border-t border-[#15110c]/8 p-3">
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {chips.map((c) => (<button key={c} onClick={() => onSend(c)} disabled={busy} className="rounded-full border border-[#15110c]/12 px-2.5 py-1 text-xs text-[#15110c]/70 transition hover:border-[#e8643c] hover:text-[#e8643c] disabled:opacity-40">{c}</button>))}
-        </div>
-        <div className="flex items-center gap-2">
-          <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Ask your trip agent…" className="flex-1 rounded-xl border border-[#15110c]/12 px-3 py-2.5 text-sm outline-none focus:border-[#e8643c]" />
-          <button onClick={submit} disabled={busy || !text.trim()} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#e8643c] text-white transition active:scale-90 hover:bg-[#d4502a] disabled:opacity-40">↑</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────────────── primitives ─────────────────────────── */
-
-function StickyBar({ children, narrow }: { children: React.ReactNode; narrow?: boolean }) {
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#15110c]/10 bg-white/85 backdrop-blur">
-      <div className={`mx-auto flex ${narrow ? "max-w-2xl" : "max-w-3xl"} flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between`}>{children}</div>
-    </div>
-  );
-}
-
-function Toaster({ toasts }: { toasts: Toast[] }) {
-  return (
-    <div className="fixed left-1/2 top-5 z-[70] flex -translate-x-1/2 flex-col items-center gap-2">
-      {toasts.map((t) => (
-        <div key={t.id} className="animate-toast flex items-center gap-2 rounded-full bg-[#15110c] px-4 py-2.5 text-sm font-medium text-white shadow-lg">
-          <span>{t.icon}</span>{t.text}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SuccessCheck() {
-  return (
-    <svg width="56" height="56" viewBox="0 0 24 24" className="mx-auto animate-pop">
-      <circle cx="12" cy="12" r="11" fill="#1f9d6b" />
-      <path className="check-path" d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function Spinner() {
-  return <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />;
-}
-
-function Badge({ children }: { children: React.ReactNode }) {
-  return <span className="rounded-full bg-[#1f9d6b]/10 px-3 py-1 text-xs font-medium text-[#1f9d6b]">{children}</span>;
-}
-
-function HowItWorks() {
-  const steps = [
-    ["Tell us in plain words", "Where you're going, your dates, budget, who's coming, your dealbreakers. No forms."],
-    ["We plan the whole thing", "Stays in the right neighbourhoods, no exhausting travel days, every booking inside your budget. Door to door."],
-    ["Reserve and book first", "Save your plan and get early access to book it all in-app, then a guide that travels with you."],
-  ];
-  return (
-    <section id="how" className="mx-auto max-w-3xl px-6 py-16">
-      <h2 className="text-center text-sm font-medium uppercase tracking-wide text-[#15110c]/40">How it works</h2>
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        {steps.map(([t, d], i) => (
-          <div key={t} className="rounded-2xl border border-[#15110c]/10 bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-[0_12px_40px_-18px_rgba(0,0,0,0.25)]">
-            <div className="mb-2 text-sm font-semibold text-[#e8643c]">{String(i + 1).padStart(2, "0")}</div>
-            <h3 className="font-semibold">{t}</h3>
-            <p className="mt-1 text-sm text-[#15110c]/60">{d}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="mt-8 border-t border-[#15110c]/8">
-      <div className="mx-auto flex max-w-5xl flex-col items-center gap-3 px-6 py-12 text-center">
-        <div className="flex items-center gap-2 font-semibold tracking-tight">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e8643c] text-sm font-bold text-white">{config.brandName.charAt(0)}</span>
-          {config.brandName}
-        </div>
-        <p className="max-w-sm text-sm text-[#15110c]/55">Describe any trip and get a plan that respects the rules you actually care about. Anywhere in the world.</p>
-        <p className="mt-2 text-xs text-[#15110c]/35">© 2026 {config.brandName}</p>
-      </div>
-    </footer>
-  );
-}
