@@ -704,7 +704,11 @@ function Footer() {
           {config.brandName}
         </div>
         <p className="max-w-sm text-sm text-[#15110c]/55">Describe any trip and get a plan that respects the rules you actually care about. Anywhere in the world.</p>
-        <p className="mt-2 text-xs text-[#15110c]/35">© 2026 {config.brandName}</p>
+        <div className="mt-2 flex items-center gap-4 text-xs text-[#15110c]/45">
+          <a href="/privacy" className="transition hover:text-[#e8643c]">Privacy</a>
+          <a href="/terms" className="transition hover:text-[#e8643c]">Terms</a>
+        </div>
+        <p className="text-xs text-[#15110c]/35">© 2026 {config.brandName}</p>
       </div>
     </footer>
   );
@@ -796,7 +800,7 @@ function ReserveSheet({ destination, onSubmit, onClose }: { destination?: string
       <button onClick={submit} disabled={!valid || saving} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-50">
         {saving ? (<><Spinner /> Sending…</>) : (<>Email me my plan</>)}
       </button>
-      <p className="mt-3 text-center text-xs text-[#15110c]/40">No spam. Just your plan, and the occasional travel tip.</p>
+      <p className="mt-3 text-center text-xs text-[#15110c]/40">No spam. Just your plan, and the occasional travel tip. See our <a href="/privacy" target="_blank" className="underline underline-offset-2 hover:text-[#e8643c]">privacy policy</a>.</p>
     </Sheet>
   );
 }
