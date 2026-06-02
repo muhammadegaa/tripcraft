@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+export const maxDuration = 30;
+
 // Turns a rough trip idea into a clear, plannable brief. Fast (Haiku), tiny
 // output. Falls back to a light heuristic when no key is set.
 const MODEL = "claude-haiku-4-5";

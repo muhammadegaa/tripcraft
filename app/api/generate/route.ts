@@ -1,6 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { parseTrip, generate, type Day, type Ticket } from "@/lib/itinerary";
 
+// Itinerary generation takes ~15-30s; allow up to 60s (Vercel Pro) so it doesn't
+// time out and fall back to the canned plan in production.
+export const maxDuration = 60;
+
 // Real Claude itinerary generation. Falls back to the canned engine when no
 // ANTHROPIC_API_KEY is set, so the app works end-to-end with zero config and
 // upgrades to real generation the moment the key lands. Server-side only — the
