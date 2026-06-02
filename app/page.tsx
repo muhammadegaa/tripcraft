@@ -104,9 +104,27 @@ export default function Page() {
 
   useEffect(() => onAuthChange(setUser), []);
 
-  async function signIn() {
+  // Deep link from the plan email: /?book=1&dest=...&days=...&party=... opens the
+  // in-app booking page directly (live flights + hotels), no external tabs.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (!sp.get("book")) return;
+    const dest = (sp.get("dest") || "").trim();
+    if (!dest) return;
+    const d = Math.max(1, Number(sp.get("days")) || 4);
+    const party = Math.max(1, Number(sp.get("party")) || 2);
+    setTrip(parseTrip(`${d} days in ${dest}, ${party} people`));
+    setDays([]);
+    setOnboarded(true);
+    setPhase("booking");
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
+  async function signIn(): Promise<TripUser | null> {
     const u = await signInWithGoogle();
     if (u) { track("sign_in"); pushToast(`Signed in as ${u.name ?? u.email ?? "you"}`, "👋"); }
+    return u;
   }
   async function signOut() {
     await signOutUser();
@@ -160,8 +178,15 @@ export default function Page() {
     }
   }
 
-  function handleGenerate() {
+  async function handleGenerate() {
     if (input.trim().length < 8) return;
+    // Gate: planning requires a real account, so trips are saved to a person
+    // and we know who we are building for.
+    if (!user) {
+      track("generate_signin_gate");
+      const u = await signIn();
+      if (!u) { pushToast("Sign in to build and save your plan", "🔒"); return; }
+    }
     if (!onboarded) {
       track("onboarding_open");
       setProfileOpen(true);
@@ -299,7 +324,7 @@ export default function Page() {
 
       {phase === "input" && (
         <div className="animate-fade">
-          <Hero input={input} setInput={setInput} onGenerate={handleGenerate} onImprove={improveBrief} improving={improving} />
+          <Hero input={input} setInput={setInput} onGenerate={handleGenerate} onImprove={improveBrief} improving={improving} signedIn={!!user} />
           <HowItWorks />
         </div>
       )}
@@ -400,7 +425,7 @@ function TripsDashboard({ trips, loading, onOpen, onNew }: { trips: SavedTrip[];
   );
 }
 
-function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: string; setInput: (s: string) => void; onGenerate: () => void; onImprove: () => void; improving: boolean }) {
+function Hero({ input, setInput, onGenerate, onImprove, improving, signedIn }: { input: string; setInput: (s: string) => void; onGenerate: () => void; onImprove: () => void; improving: boolean; signedIn: boolean }) {
   const canImprove = input.trim().length >= 3 && !improving;
   return (
     <section className="mx-auto max-w-3xl px-6 pb-10 pt-10 text-center">
@@ -435,7 +460,7 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
           <button onClick={onImprove} disabled={!canImprove} title="Let AI sharpen your trip into a clear, complete brief" className="rounded-xl border border-[#15110c]/15 px-3.5 py-2.5 text-sm font-medium text-[#15110c] transition active:scale-95 enabled:hover:border-[#e8643c] enabled:hover:text-[#e8643c] disabled:opacity-40">
             {improving ? "✨ Improving…" : "✨ Improve my brief"}
           </button>
-          <button onClick={onGenerate} disabled={input.trim().length < 8} className="rounded-xl bg-[#15110c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 enabled:hover:bg-[#e8643c] disabled:opacity-40">See my plan, free →</button>
+          <button onClick={onGenerate} disabled={input.trim().length < 8} className="rounded-xl bg-[#15110c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 enabled:hover:bg-[#e8643c] disabled:opacity-40">{signedIn ? "See my plan, free →" : "Sign in to plan, free →"}</button>
         </div>
       </div>
       <p className="mt-3 text-xs text-[#15110c]/45 animate-rise">New here? Pick a template, then hit <span className="font-medium text-[#15110c]/70">✨ Improve</span> to shape it, or just type and go.</p>

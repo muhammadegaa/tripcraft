@@ -1,6 +1,5 @@
 import { Resend } from "resend";
 import type { Day } from "@/lib/itinerary";
-import { flightsToDestUrl, hotelUrl, plusDays } from "@/lib/booking-links";
 import { captureError } from "@/lib/log";
 
 // Emails the traveler their full plan plus real booking links. Server-side
@@ -27,7 +26,7 @@ function btn(href: string, label: string): string {
   return `<a href="${href}" style="display:inline-block;background:#e8643c;color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:10px 16px;border-radius:10px">${label}</a>`;
 }
 
-function buildHtml(destination: string, days: Day[], party: number): string {
+function buildHtml(destination: string, days: Day[], party: number, appUrl: string): string {
   const rows = days
     .map((d) => {
       const stops = d.stops.map((s) => `<div style="margin:2px 0;color:#444"><span style="color:#999">${s.time}</span> ${esc(s.title)}</div>`).join("");
@@ -40,31 +39,25 @@ function buildHtml(destination: string, days: Day[], party: number): string {
     })
     .join("");
 
-  // Unique hotels from the plan, each with a real booking link.
-  const checkin = plusDays(30);
-  const checkout = plusDays(30 + Math.max(1, days.length));
-  const hotels = Array.from(new Map(days.map((d) => [d.hotel.name, { name: d.hotel.name, city: d.city }])).values());
-  const hotelRows = hotels
-    .map((h) => `<tr><td style="padding:6px 0;font-size:14px">${esc(h.name)} <span style="color:#999">· ${esc(h.city)}</span></td>
-      <td style="padding:6px 0;text-align:right"><a href="${hotelUrl(`${h.name} ${h.city}`, checkin, checkout, party)}" style="color:#e8643c;font-weight:600;text-decoration:none;font-size:14px">Book ↗</a></td></tr>`)
-    .join("");
+  const bookUrl = `${appUrl}/?book=1&dest=${encodeURIComponent(destination)}&days=${days.length}&party=${party}`;
+  const bookBlock = appUrl
+    ? `<div style="border:1px solid #eee;border-radius:14px;padding:16px;margin:0 0 22px;text-align:center">
+        <div style="font-weight:600;margin:0 0 6px">Book it in the app</div>
+        <p style="color:#666;font-size:13px;margin:0 0 14px">Live flights and hotels for ${party} traveller${party > 1 ? "s" : ""}, booked inside Tripcraft. No hopping between tabs.</p>
+        ${btn(bookUrl, "Open booking →")}
+      </div>`
+    : "";
 
   return `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;color:#15110c">
     <h2 style="margin:0 0 4px">Your ${esc(destination)} plan</h2>
-    <p style="color:#666;margin:0 0 20px">Hotels by the station, no train over 2 hours, on your budget. Book each piece below in a couple of taps.</p>
+    <p style="color:#666;margin:0 0 20px">Hotels by the station, no train over 2 hours, on your budget.</p>
 
-    <div style="border:1px solid #eee;border-radius:14px;padding:16px;margin:0 0 22px">
-      <div style="font-weight:600;margin:0 0 8px">✈️ Flights</div>
-      <p style="color:#666;font-size:13px;margin:0 0 12px">Search live fares to ${esc(destination)} for ${party} traveller${party > 1 ? "s" : ""}.</p>
-      ${btn(flightsToDestUrl(destination, party), "Search flights ↗")}
-      <div style="font-weight:600;margin:18px 0 8px">🏨 Hotels in your plan</div>
-      <table style="width:100%;border-collapse:collapse">${hotelRows}</table>
-    </div>
+    ${bookBlock}
 
     <div style="font-weight:600;margin:0 0 10px">Your day by day</div>
     ${rows}
 
-    <p style="color:#999;font-size:12px;margin-top:24px">Prices in the plan are estimates. Booking and payment happen on Skyscanner and Booking.com. Reply any time and a real person will read it.</p>
+    <p style="color:#999;font-size:12px;margin-top:24px">Prices in the plan are estimates. Reply any time and a real person will read it.</p>
   </div>`;
 }
 
@@ -86,8 +79,10 @@ export async function POST(req: Request) {
   if (!days.length) return Response.json({ sent: false, reason: "no_plan" }, { status: 400 });
   if (!key) return Response.json({ sent: false, reason: "no_key" });
 
+  const host = req.headers.get("host");
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || (host ? `https://${host}` : "");
   const resend = new Resend(key);
-  const html = buildHtml(destination, days, party);
+  const html = buildHtml(destination, days, party, appUrl);
   const subject = `Your ${destination} plan, ready to book`;
 
   async function send(from: string) {

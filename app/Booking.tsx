@@ -166,7 +166,7 @@ export default function Booking({ trip, days, onBack }: { trip: Trip; days: Day[
                 </div>
                 <div className="shrink-0 text-right">
                   {h.price != null ? <div className="text-sm font-semibold">{money(h.price, h.currency)}</div> : <div className="text-xs text-[#15110c]/45">see rates</div>}
-                  <div className="text-[10px] text-[#15110c]/45">{pickedHotel?.id === h.id ? "selected" : `${days.length} nights`}</div>
+                  <div className="text-[10px] text-[#15110c]/45">{pickedHotel?.id === h.id ? "selected" : `${trip.days} nights`}</div>
                 </div>
               </button>
             ))}
