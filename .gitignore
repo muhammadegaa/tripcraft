@@ -43,3 +43,9 @@ next-env.d.ts
 
 # keep the env template in the repo (real .env.local stays ignored)
 !.env.local.example
+
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// Tripcraft Firestore security. Deploy with:
+//   firebase deploy --only firestore:rules
+// (or paste into Firebase console → Firestore → Rules). These rules are the
+// real multi-tenant boundary: the client query filtering by userId is NOT
+// security, these rules are.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Trips: a signed-in user can only read or change their OWN trips. userId is
+    // stamped server-side in saveTrip() from the authenticated uid, and a user
+    // cannot create a trip owned by someone else.
+    match /trips/{tripId} {
+      allow read, update, delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Leads: interest capture. Anyone can submit one, but no client can ever
+    // read, edit, or delete them, so emails can't be scraped.
+    match /leads/{leadId} {
+      allow create: if true;
+      allow read, update, delete: if false;
+    }
+
+    // Everything else is denied by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

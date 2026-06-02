@@ -27,7 +27,9 @@ const TEMPLATES = [
 ];
 
 type Phase = "input" | "generating" | "plan" | "live" | "reserved" | "booking" | "trips";
-type SavedTrip = { id: string; trip?: Trip; days?: Day[]; status?: string; updatedAt?: unknown };
+type PickSummary = { label: string; sub: string };
+type TripPicks = { flight: PickSummary | null; hotel: PickSummary | null };
+type SavedTrip = { id: string; trip?: Trip; days?: Day[]; status?: string; picks?: TripPicks; updatedAt?: unknown };
 type Msg = { id: number; role: "user" | "agent"; text?: string; steps?: string[]; pending?: boolean };
 type Toast = { id: number; text: string; icon: string };
 type Profile = { pace: string | null; interests: string[]; mustHaves: string[] };
@@ -116,6 +118,7 @@ export default function Page() {
     const party = Math.max(1, Number(sp.get("party")) || 2);
     setTrip(parseTrip(`${d} days in ${dest}, ${party} people`));
     setDays([]);
+    setTripId(newId());
     setOnboarded(true);
     setPhase("booking");
     window.history.replaceState({}, "", window.location.pathname);
@@ -139,6 +142,21 @@ export default function Page() {
     setTrips((await listTrips(user.uid)) as SavedTrip[]);
     setTripsLoading(false);
   }
+  // Persist the user's flight/hotel picks onto their trip so they survive a
+  // refresh and show up in My Trips. Requires a real account, like planning.
+  async function savePicks(picks: { flight: PickSummary | null; hotel: PickSummary | null }): Promise<boolean> {
+    if (!user) {
+      const u = await signIn();
+      if (!u) { pushToast("Sign in to save your picks", "🔒"); return false; }
+    }
+    const id = tripId || newId();
+    if (!tripId) setTripId(id);
+    saveTrip(id, { trip, status: "picks_selected", picks });
+    track("picks_saved", { destination: trip?.destination ?? "" });
+    pushToast("Saved to your trips", "✓");
+    return true;
+  }
+
   function openSavedTrip(t: SavedTrip) {
     if (!t.trip || !t.days) return;
     setTrip(t.trip);
@@ -333,7 +351,7 @@ export default function Page() {
         <Plan trip={trip!} days={days} onBooking={goBooking} onReserve={openReserve} onRestart={restart} />
       )}
       {phase === "booking" && (
-        <Booking trip={trip!} days={days} onBack={() => setPhase("plan")} />
+        <Booking trip={trip!} days={days} onBack={() => setPhase("plan")} onSavePicks={savePicks} />
       )}
       {phase === "trips" && (
         <TripsDashboard trips={trips} loading={tripsLoading} onOpen={openSavedTrip} onNew={restart} />
@@ -382,8 +400,8 @@ function Nav({ user, onSignIn, onSignOut, onMyTrips, onHome }: { user: TripUser 
 
 function statusLabel(s?: string): { text: string; cls: string } {
   switch (s) {
-    case "booking": return { text: "Flights booked", cls: "bg-[#1f9d6b]/10 text-[#1f9d6b]" };
-    case "reserved": return { text: "Saved", cls: "bg-[#e8643c]/10 text-[#e8643c]" };
+    case "picks_selected": return { text: "Flights + hotel picked", cls: "bg-[#1f9d6b]/10 text-[#1f9d6b]" };
+    case "reserved": return { text: "Emailed", cls: "bg-[#e8643c]/10 text-[#e8643c]" };
     default: return { text: "Planned", cls: "bg-[#15110c]/8 text-[#15110c]/60" };
   }
 }
@@ -413,6 +431,11 @@ function TripsDashboard({ trips, loading, onOpen, onNew }: { trips: SavedTrip[];
                   <div className="min-w-0">
                     <div className="font-semibold">{t.trip!.days} days in {t.trip!.destination}</div>
                     <div className="mt-1 truncate text-sm text-[#15110c]/55">{t.trip!.party} travellers · {t.trip!.budget} · {(t.days?.length ?? 0)} nights</div>
+                    {t.picks && (t.picks.flight || t.picks.hotel) && (
+                      <div className="mt-1.5 truncate text-xs text-[#1f9d6b]">
+                        {t.picks.flight ? `✈️ ${t.picks.flight.label}` : ""}{t.picks.flight && t.picks.hotel ? " · " : ""}{t.picks.hotel ? `🏨 ${t.picks.hotel.label}` : ""}
+                      </div>
+                    )}
                   </div>
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${st.cls}`}>{st.text}</span>
                 </button>

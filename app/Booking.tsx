@@ -23,7 +23,9 @@ function money(amount: string | number, currency: string) {
   }
 }
 
-export default function Booking({ trip, days, onBack }: { trip: Trip; days: Day[]; onBack: () => void }) {
+type PickSummary = { label: string; sub: string };
+
+export default function Booking({ trip, days, onBack, onSavePicks }: { trip: Trip; days: Day[]; onBack: () => void; onSavePicks?: (picks: { flight: PickSummary | null; hotel: PickSummary | null }) => Promise<boolean> }) {
   const [origin, setOrigin] = useState("");
   const [originLabel, setOriginLabel] = useState("");
   const [destination, setDestination] = useState(guessIata(trip.destination));
@@ -37,6 +39,19 @@ export default function Booking({ trip, days, onBack }: { trip: Trip; days: Day[
   const [pickedFlight, setPickedFlight] = useState<Offer | null>(null);
   const [pickedHotel, setPickedHotel] = useState<Hotel | null>(null);
   const [reserved, setReserved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function reserve() {
+    if (saving) return;
+    setSaving(true);
+    const picks = {
+      flight: pickedFlight ? { label: `${pickedFlight.airline} ${money(pickedFlight.price, pickedFlight.currency)}`, sub: `${pickedFlight.out.from} → ${pickedFlight.out.to} · ${pickedFlight.out.depart}–${pickedFlight.out.arrive}` } : null,
+      hotel: pickedHotel ? { label: `${pickedHotel.name}${pickedHotel.price != null ? ` ${money(pickedHotel.price, pickedHotel.currency)}` : ""}`, sub: `${trip.days} nights` } : null,
+    };
+    const ok = onSavePicks ? await onSavePicks(picks) : true;
+    setSaving(false);
+    if (ok) setReserved(true);
+  }
 
   useEffect(() => {
     if (destination) return;
@@ -188,7 +203,7 @@ export default function Booking({ trip, days, onBack }: { trip: Trip; days: Day[
                 {pickedHotel ? `🏨 ${pickedHotel.name}${pickedHotel.price != null ? ` ${money(pickedHotel.price, pickedHotel.currency)}` : ""}` : "no hotel yet"}
               </div>
             </div>
-            <button onClick={() => setReserved(true)} className="shrink-0 rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Reserve my picks →</button>
+            <button onClick={reserve} disabled={saving} className="shrink-0 rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a] disabled:opacity-50">{saving ? "Saving…" : "Save my picks →"}</button>
           </div>
         </div>
       )}
@@ -204,7 +219,7 @@ function Reserved({ trip, flight, hotel, onBack }: { trip: Trip; flight: Offer |
       <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#1f9d6b]/15 text-2xl">✓</div>
       <h2 className="mt-5 text-2xl font-semibold tracking-tight">Picks saved to your {trip.destination} trip</h2>
       <p className="mx-auto mt-3 max-w-md text-[15px] text-[#15110c]/65">
-        These are held against your itinerary. Secure card payment is the one step we are switching on with our travel booking licence. We will email you the moment you can pay and ticket in the app, no new tabs.
+        Saved to your account, you will find them under My Trips on any device. Secure card payment is the one step we are switching on with our booking licence, and we will email you the moment you can pay and ticket right here.
       </p>
       <div className="mt-6 space-y-2 text-left">
         {flight && (
