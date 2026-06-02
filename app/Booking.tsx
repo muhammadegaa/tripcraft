@@ -34,6 +34,12 @@ function nightsBetween(a: string, b: string, fallback: number): number {
 }
 function num(s: string) { const n = Number(s); return isFinite(n) ? n : 0; }
 
+// Static FX to USD so the trip total is coherent across suppliers (sandbox).
+const FX: Record<string, number> = { USD: 1, GBP: 1.27, EUR: 1.08, IDR: 0.000063, JPY: 0.0064, SGD: 0.74, KRW: 0.00073, THB: 0.027, VND: 0.00004, TWD: 0.031, AUD: 0.66, CAD: 0.73 };
+function toUSD(amount: number, currency: string): number {
+  return amount * (FX[currency?.toUpperCase()] ?? 1);
+}
+
 export default function Booking({ trip, email, onBack }: { trip: Trip; email?: string; onBack: () => void }) {
   const [step, setStep] = useState<Step>("form");
   const [origin, setOrigin] = useState("CGK");
@@ -57,11 +63,12 @@ export default function Booking({ trip, email, onBack }: { trip: Trip; email?: s
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paySimulated, setPaySimulated] = useState(false);
   const [ref, setRef] = useState<string | null>(null);
+  const [hotelRef, setHotelRef] = useState<string | null>(null);
 
   const nights = nightsBetween(departDate, returnDate, Math.min(trip.days, 14));
-  const flightAmt = flight ? num(flight.price) : 0;
-  const hotelAmt = hotel?.price ? hotel.price * nights : 0;
-  const total = Math.round(flightAmt + hotelAmt);
+  const flightAmt = flight ? Math.round(toUSD(num(flight.price), flight.currency)) : 0;
+  const hotelAmt = hotel?.price ? Math.round(toUSD(hotel.price, hotel.currency)) * nights : 0;
+  const total = flightAmt + hotelAmt;
 
   async function search() {
     setError(null);
@@ -110,12 +117,20 @@ export default function Booking({ trip, email, onBack }: { trip: Trip; email?: s
 
   async function placeOrder() {
     setStep("booking");
+    let flightRef = "CONFIRMED";
     try {
       const res = await fetch("/api/flights/order", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offerId: flight!.id, amount: flight!.price, currency: flight!.currency, email: contactEmail, passengers: pax }) });
-      const data = await res.json();
-      setRef(data.bookingReference || "CONFIRMED");
-      setStep("done");
-    } catch { setRef("CONFIRMED"); setStep("done"); }
+      flightRef = (await res.json()).bookingReference || "CONFIRMED";
+    } catch { /* keep fallback */ }
+    if (hotel?.offerId) {
+      try {
+        const hb = await fetch("/api/hotels/book", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offerId: hotel.offerId, email: contactEmail, guests: pax.map((p) => ({ firstName: p.given_name, lastName: p.family_name })) }) });
+        const hj = await hb.json();
+        setHotelRef(hj.bookingId ?? null);
+      } catch { /* hotel best-effort */ }
+    }
+    setRef(flightRef);
+    setStep("done");
   }
 
   return (
@@ -233,7 +248,7 @@ export default function Booking({ trip, email, onBack }: { trip: Trip; email?: s
           <div className="mx-auto mt-2 w-fit rounded-xl bg-[#15110c] px-5 py-2 font-mono text-lg font-semibold tracking-widest text-white">{ref}</div>
           <div className="mx-auto mt-5 max-w-sm space-y-1 text-sm text-[#15110c]/65">
             <p>✈️ {flight?.airline}, {origin} ↔ {destination}, {pax.length} traveller{pax.length > 1 ? "s" : ""}</p>
-            {hotel && <p>🏨 {hotel.name}, {nights} nights</p>}
+            {hotel && <p>🏨 {hotel.name}, {nights} nights{hotelRef ? ` · ${hotelRef}` : ""}</p>}
             <p className="text-[#15110c]/45">Confirmation sent to {contactEmail}.</p>
           </div>
           <button onClick={onBack} className="mt-6 text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">Back to my plan →</button>
