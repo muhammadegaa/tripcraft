@@ -42,8 +42,10 @@ function toUSD(amount: number, currency: string): number {
 
 export default function Booking({ trip, email, onBack }: { trip: Trip; email?: string; onBack: () => void }) {
   const [step, setStep] = useState<Step>("form");
-  const [origin, setOrigin] = useState("CGK");
+  const [origin, setOrigin] = useState("");
+  const [originLabel, setOriginLabel] = useState("");
   const [destination, setDestination] = useState(guessIata(trip.destination));
+  const [destLabel, setDestLabel] = useState(guessIata(trip.destination) ? `${trip.destination} (${guessIata(trip.destination)})` : "");
   const [departDate, setDepart] = useState(plusDays(30));
   const [returnDate, setReturn] = useState(plusDays(30 + Math.min(trip.days, 21)));
   const [adults] = useState(Math.max(1, trip.party));
@@ -70,9 +72,18 @@ export default function Booking({ trip, email, onBack }: { trip: Trip; email?: s
   const hotelAmt = hotel?.price ? Math.round(toUSD(hotel.price, hotel.currency)) * nights : 0;
   const total = flightAmt + hotelAmt;
 
+  // Prefill the destination airport from the trip when we couldn't guess it.
+  useEffect(() => {
+    if (destination) return;
+    fetch(`/api/airports?q=${encodeURIComponent(trip.destination)}`).then((r) => r.json()).then((d) => {
+      const a = d.results?.[0];
+      if (a) { setDestination(a.iata); setDestLabel(`${a.city} (${a.iata})`); }
+    }).catch(() => {});
+  }, [destination, trip.destination]);
+
   async function search() {
     setError(null);
-    if (!/^[A-Za-z]{3}$/.test(origin) || !/^[A-Za-z]{3}$/.test(destination)) { setError("Enter 3-letter airport codes (e.g. CGK, TYO)."); return; }
+    if (!/^[A-Za-z]{3}$/.test(origin) || !/^[A-Za-z]{3}$/.test(destination)) { setError("Pick an airport for both From and To."); return; }
     setStep("searching");
     try {
       const res = await fetch("/api/flights/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ origin, destination, departDate, returnDate, adults }) });
@@ -146,8 +157,8 @@ export default function Booking({ trip, email, onBack }: { trip: Trip; email?: s
           <h2 className="text-2xl font-semibold tracking-tight">Book your trip</h2>
           <p className="mt-1 text-sm text-[#15110c]/55">Live flight and hotel prices for your dates, paid in one go.</p>
           <div className="mt-6 grid grid-cols-2 gap-3">
-            <Field label="From (airport)"><input value={origin} onChange={(e) => setOrigin(e.target.value.toUpperCase())} maxLength={3} className="ipt" /></Field>
-            <Field label="To (airport)"><input value={destination} onChange={(e) => setDestination(e.target.value.toUpperCase())} maxLength={3} placeholder="e.g. TYO" className="ipt" /></Field>
+            <AirportInput label="Flying from" initial={originLabel} onSelect={(iata, d) => { setOrigin(iata); setOriginLabel(d); }} />
+            <AirportInput label="Going to" initial={destLabel} onSelect={(iata, d) => { setDestination(iata); setDestLabel(d); }} />
             <Field label="Depart"><input type="date" value={departDate} onChange={(e) => setDepart(e.target.value)} className="ipt" /></Field>
             <Field label="Return"><input type="date" value={returnDate} onChange={(e) => setReturn(e.target.value)} className="ipt" /></Field>
           </div>
@@ -292,6 +303,35 @@ function SimPay({ onPaid, total }: { onPaid: () => void; total: number }) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs font-medium text-[#15110c]/50">{label}</span>{children}</label>;
+}
+
+function AirportInput({ label, initial, onSelect }: { label: string; initial?: string; onSelect: (iata: string, display: string) => void }) {
+  const [q, setQ] = useState(initial ?? "");
+  const [list, setList] = useState<{ iata: string; name: string; city: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (initial) setQ(initial); }, [initial]);
+  useEffect(() => {
+    if (q.trim().length < 2 || !open) { setList([]); return; }
+    const t = setTimeout(async () => {
+      try { const r = await fetch(`/api/airports?q=${encodeURIComponent(q)}`); setList((await r.json()).results || []); } catch { /* ignore */ }
+    }, 220);
+    return () => clearTimeout(t);
+  }, [q, open]);
+  return (
+    <label className="relative block">
+      <span className="mb-1 block text-xs font-medium text-[#15110c]/50">{label}</span>
+      <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="City or airport" className="ipt" />
+      {open && list.length > 0 && (
+        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-[#15110c]/12 bg-white shadow-lg">
+          {list.map((a) => (
+            <button key={a.iata + a.name} type="button" onMouseDown={(e) => { e.preventDefault(); onSelect(a.iata, `${a.city} (${a.iata})`); setQ(`${a.city} (${a.iata})`); setOpen(false); }} className="block w-full px-3 py-2 text-left text-sm transition hover:bg-[#faf7f2]">
+              <span className="font-medium">{a.city}</span> <span className="text-xs text-[#15110c]/50">{a.iata} · {a.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </label>
+  );
 }
 function Line({ label, val }: { label: string; val: string }) {
   return <div className="flex items-center justify-between gap-3"><span className="min-w-0 truncate text-[#15110c]/70">{label}</span><span className="shrink-0 font-medium">{val}</span></div>;
