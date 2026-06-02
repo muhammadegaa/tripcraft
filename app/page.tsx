@@ -258,7 +258,7 @@ export default function Page() {
       fetch("/api/reserve-email", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, destination: trip?.destination, days }),
+        body: JSON.stringify({ email, destination: trip?.destination, days, party: trip?.party }),
       });
     } catch {
       /* email is best-effort; the lead is already saved */

@@ -2,36 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { Trip, Day } from "@/lib/itinerary";
+import { guessIata, plusDays, flightsUrl, hotelUrl } from "@/lib/booking-links";
 
 // v1 booking: honest hand-off to real booking sites with the trip pre-filled.
 // Real in-app ticketing (Duffel/LiteAPI/Stripe) is the gated v2 build.
-
-const CITY_IATA: Record<string, string> = {
-  japan: "TYO", tokyo: "TYO", osaka: "KIX", kyoto: "KIX", bali: "DPS", indonesia: "CGK", jakarta: "CGK",
-  korea: "SEL", seoul: "SEL", busan: "PUS", thailand: "BKK", bangkok: "BKK", singapore: "SIN", vietnam: "SGN",
-  taiwan: "TPE", portugal: "LIS", lisbon: "LIS", italy: "ROM", rome: "ROM", france: "PAR", paris: "PAR",
-  spain: "MAD", europe: "LON", london: "LON",
-};
-function guessIata(dest: string): string {
-  const key = dest.toLowerCase().split(/[\s,]+/).find((w) => CITY_IATA[w]);
-  return key ? CITY_IATA[key] : "";
-}
-function plusDays(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-function yymmdd(d: string) { return d.replace(/-/g, "").slice(2); }
-
-function flightsUrl(origin: string, dest: string, depart: string, ret: string, adults: number): string {
-  if (/^[A-Z]{3}$/.test(origin) && /^[A-Z]{3}$/.test(dest)) {
-    return `https://www.skyscanner.net/transport/flights/${origin.toLowerCase()}/${dest.toLowerCase()}/${yymmdd(depart)}/${yymmdd(ret)}/?adults=${adults}`;
-  }
-  return `https://www.google.com/travel/flights?q=${encodeURIComponent(`flights from ${origin} to ${dest} on ${depart} returning ${ret} for ${adults} adults`)}`;
-}
-function hotelUrl(query: string, checkin: string, checkout: string, adults: number): string {
-  return `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(query)}&checkin=${checkin}&checkout=${checkout}&group_adults=${adults}`;
-}
 
 export default function Booking({ trip, days, onBack }: { trip: Trip; days: Day[]; onBack: () => void }) {
   const [origin, setOrigin] = useState("");
