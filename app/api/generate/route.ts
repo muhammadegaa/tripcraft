@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { unstable_cache } from "next/cache";
 import { parseTrip, generate, type Day, type Ticket } from "@/lib/itinerary";
 
 // Itinerary generation takes ~15-30s; allow up to 60s (Vercel Pro) so it doesn't
@@ -124,59 +125,70 @@ function normalize(rawDays: unknown): Day[] {
   });
 }
 
-export async function POST(req: Request) {
-  let input = "";
-  try {
-    const body = await req.json();
-    input = (body?.input ?? "").toString();
-  } catch {
-    return Response.json({ error: "bad request" }, { status: 400 });
-  }
-  if (input.trim().length < 8) {
-    return Response.json({ error: "input too short" }, { status: 400 });
-  }
-
-  const trip = parseTrip(input);
-
-  // No key → canned engine. Same Day[] shape, instant, zero cost.
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return Response.json({ days: generate(trip), source: "canned" });
-  }
-
-  try {
+// One Claude call per UNIQUE brief, cached for 7 days. Identical briefs (the six
+// templates, retries, popular trips) reuse the cached itinerary and cost zero
+// credits. Throws on failure so canned fallbacks are never cached.
+const generateItinerary = unstable_cache(
+  async (brief: string): Promise<Day[]> => {
+    const trip = parseTrip(brief);
     const client = new Anthropic();
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 16000,
       thinking: { type: "disabled" },
-      system: [
-        // Cached prefix — stable across every request (prompt caching).
-        { type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } },
-      ],
+      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
-      messages: [
-        {
-          role: "user",
-          content: `Plan a trip in ${trip.destination} for ${trip.party} traveller(s), budget ${trip.budget}, interests: ${trip.interests}.\n\nThe "days" array must have exactly ${trip.days} day objects (day 1 through day ${trip.days}). Do not stop early.\n\nTraveller's words: "${trip.raw}"`,
-        },
-      ],
-      // output_config / thinking may outpace the installed SDK's static types.
+      messages: [{ role: "user", content: `Plan a trip in ${trip.destination} for ${trip.party} traveller(s), budget ${trip.budget}, interests: ${trip.interests}.\n\nThe "days" array must have exactly ${trip.days} day objects (day 1 through day ${trip.days}). Do not stop early.\n\nTraveller's words: "${trip.raw}"` }],
     } as Anthropic.MessageCreateParamsNonStreaming);
-
     const textBlock = message.content.find((b) => b.type === "text");
     const text = textBlock && "text" in textBlock ? textBlock.text : "";
-    const parsed = JSON.parse(text);
-    let days = normalize(parsed.days);
+    let days = normalize(JSON.parse(text).days);
     if (!days.length) throw new Error("empty itinerary");
-    // Guard: models don't always honor the exact count. Trim extras, and if
-    // short, cycle the real generated days so we always show trip.days.
     if (days.length !== trip.days) {
       const base = days;
       days = Array.from({ length: trip.days }, (_, i) => ({ ...base[i % base.length], n: i + 1 }));
     }
+    return days;
+  },
+  ["itinerary-v2"],
+  { revalidate: 60 * 60 * 24 * 7 }
+);
+
+// Soft per-IP rate limit (per warm instance) so a burst of distinct prompts
+// can't drain credits. Robust durable limiting would use Vercel KV.
+const RL = new Map<string, { n: number; reset: number }>();
+function rateLimited(ip: string, maxPerHour = 20): boolean {
+  const now = Date.now();
+  const cur = RL.get(ip);
+  if (!cur || now > cur.reset) { RL.set(ip, { n: 1, reset: now + 3_600_000 }); return false; }
+  cur.n += 1;
+  return cur.n > maxPerHour;
+}
+
+export async function POST(req: Request) {
+  let input = "";
+  try {
+    input = ((await req.json())?.input ?? "").toString();
+  } catch {
+    return Response.json({ error: "bad request" }, { status: 400 });
+  }
+  if (input.trim().length < 8) return Response.json({ error: "input too short" }, { status: 400 });
+  const trip = parseTrip(input);
+
+  // Never spend credits when: dev mode forces canned, there's no key, or the
+  // caller is over the rate limit.
+  if (process.env.TRIPCRAFT_CANNED === "1" || !process.env.ANTHROPIC_API_KEY) {
+    return Response.json({ days: generate(trip), source: "canned" });
+  }
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
+  if (rateLimited(ip)) {
+    return Response.json({ days: generate(trip), source: "rate_limited" });
+  }
+
+  try {
+    const days = await generateItinerary(input);
     return Response.json({ days, source: "claude" });
   } catch (e) {
-    // Any failure (key, parse, rate limit) degrades gracefully to canned.
     return Response.json({ days: generate(trip), source: "fallback", error: String(e) });
   }
 }
