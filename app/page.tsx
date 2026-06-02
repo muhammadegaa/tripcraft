@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { config } from "@/lib/config";
 import { burstConfetti } from "@/lib/confetti";
-import { saveTrip, saveLead } from "@/lib/firebase";
+import { saveTrip, saveLead, onAuthChange, signInWithGoogle, signOutUser, listTrips, type TripUser } from "@/lib/firebase";
 import { track as vaTrack } from "@vercel/analytics";
 import Booking from "./Booking";
 import {
@@ -28,7 +28,8 @@ const TEMPLATES = [
 const MOCK_DAY = 3;
 const MOCK_NOW = "11:05";
 
-type Phase = "input" | "generating" | "plan" | "live" | "reserved" | "booking";
+type Phase = "input" | "generating" | "plan" | "live" | "reserved" | "booking" | "trips";
+type SavedTrip = { id: string; trip?: Trip; days?: Day[]; status?: string; updatedAt?: unknown };
 type Msg = { id: number; role: "user" | "agent"; text?: string; steps?: string[]; pending?: boolean };
 type Toast = { id: number; text: string; icon: string };
 type Profile = { pace: string | null; interests: string[]; mustHaves: string[] };
@@ -91,8 +92,40 @@ export default function Page() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [improving, setImproving] = useState(false);
+  const [user, setUser] = useState<TripUser | null>(null);
+  const [trips, setTrips] = useState<SavedTrip[]>([]);
+  const [tripsLoading, setTripsLoading] = useState(false);
   const idRef = useRef(1);
   const nextId = () => idRef.current++;
+
+  useEffect(() => onAuthChange(setUser), []);
+
+  async function signIn() {
+    const u = await signInWithGoogle();
+    if (u) { track("sign_in"); pushToast(`Signed in as ${u.name ?? u.email ?? "you"}`, "👋"); }
+  }
+  async function signOut() {
+    await signOutUser();
+    setTrips([]);
+    pushToast("Signed out", "👋");
+  }
+  async function openTrips() {
+    if (!user) { await signIn(); return; }
+    track("open_trips");
+    setPhase("trips");
+    setTripsLoading(true);
+    setTrips((await listTrips(user.uid)) as SavedTrip[]);
+    setTripsLoading(false);
+  }
+  function openSavedTrip(t: SavedTrip) {
+    if (!t.trip || !t.days) return;
+    setTrip(t.trip);
+    setDays(t.days);
+    setTripId(t.id);
+    setOnboarded(true);
+    track("reopen_trip", { destination: t.trip.destination });
+    setPhase("plan");
+  }
 
   function pushToast(text: string, icon = "✓") {
     const id = nextId();
@@ -321,7 +354,7 @@ export default function Page() {
 
   return (
     <main className="min-h-screen bg-[#faf7f2] text-[#15110c]">
-      <Nav live={phase === "live"} />
+      <Nav live={phase === "live"} user={user} onSignIn={signIn} onSignOut={signOut} onMyTrips={openTrips} onHome={restart} />
 
       {phase === "input" && (
         <div className="animate-fade">
@@ -338,6 +371,9 @@ export default function Page() {
       )}
       {phase === "booking" && (
         <Booking trip={trip!} email={reservedEmail} onBack={() => setPhase("plan")} />
+      )}
+      {phase === "trips" && (
+        <TripsDashboard trips={trips} loading={tripsLoading} onOpen={openSavedTrip} onNew={restart} />
       )}
       {phase === "reserved" && (
         <Reserved trip={trip!} days={days} email={reservedEmail} onShare={shareTrip} onRestart={restart} />
@@ -357,18 +393,77 @@ export default function Page() {
 
 /* ─────────────────────────── chrome ─────────────────────────── */
 
-function Nav({ live }: { live: boolean }) {
+function Nav({ live, user, onSignIn, onSignOut, onMyTrips, onHome }: { live: boolean; user: TripUser | null; onSignIn: () => void; onSignOut: () => void; onMyTrips: () => void; onHome: () => void }) {
   return (
     <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
-      <div className="flex items-center gap-2 font-semibold tracking-tight">
+      <button onClick={onHome} className="flex items-center gap-2 font-semibold tracking-tight">
         <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e8643c] text-sm font-bold text-white">{config.brandName.charAt(0)}</span>
         {config.brandName}
+      </button>
+      <div className="flex items-center gap-3">
+        {live && <span className="hidden items-center gap-1.5 rounded-full border border-[#15110c]/10 bg-white px-3 py-1 text-xs font-medium text-[#15110c]/70 sm:flex"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1f9d6b]" />Live companion</span>}
+        {user ? (
+          <>
+            <button onClick={onMyTrips} className="text-sm font-medium text-[#15110c]/70 transition hover:text-[#e8643c]">My trips</button>
+            <button onClick={onSignOut} className="flex items-center gap-2" title="Sign out">
+              {user.photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.photo} alt="" className="h-7 w-7 rounded-full" referrerPolicy="no-referrer" />
+              ) : (
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[#15110c] text-xs font-semibold text-white">{(user.name ?? user.email ?? "?").charAt(0).toUpperCase()}</span>
+              )}
+            </button>
+          </>
+        ) : (
+          <button onClick={onSignIn} className="rounded-full border border-[#15110c]/15 bg-white px-3.5 py-1.5 text-sm font-medium transition hover:border-[#e8643c] hover:text-[#e8643c]">Sign in</button>
+        )}
       </div>
-      <span className="flex items-center gap-1.5 rounded-full border border-[#15110c]/10 bg-white px-3 py-1 text-xs font-medium text-[#15110c]/70">
-        {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1f9d6b]" />}
-        {live ? "Live companion · preview" : "Free · no signup to try"}
-      </span>
     </header>
+  );
+}
+
+function statusLabel(s?: string): { text: string; cls: string } {
+  switch (s) {
+    case "booking": return { text: "Flights booked", cls: "bg-[#1f9d6b]/10 text-[#1f9d6b]" };
+    case "reserved": return { text: "Reserved", cls: "bg-[#e8643c]/10 text-[#e8643c]" };
+    default: return { text: "Planned", cls: "bg-[#15110c]/8 text-[#15110c]/60" };
+  }
+}
+
+function TripsDashboard({ trips, loading, onOpen, onNew }: { trips: SavedTrip[]; loading: boolean; onOpen: (t: SavedTrip) => void; onNew: () => void }) {
+  const valid = trips.filter((t) => t.trip && t.days);
+  return (
+    <section className="mx-auto max-w-3xl px-6 pb-24 pt-4 animate-fade">
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-3xl font-semibold tracking-tight">Your trips</h2>
+        <button onClick={onNew} className="rounded-xl bg-[#15110c] px-4 py-2.5 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#e8643c]">Plan a new trip</button>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-20"><span className="h-6 w-6 animate-spin rounded-full border-2 border-[#e8643c]/30 border-t-[#e8643c]" /></div>
+      ) : valid.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-[#15110c]/15 p-10 text-center">
+          <p className="text-[#15110c]/60">No saved trips yet. The ones you plan while signed in show up here, ready to pick back up.</p>
+          <button onClick={onNew} className="mt-4 rounded-xl bg-[#e8643c] px-5 py-3 text-sm font-semibold text-white transition active:scale-95 hover:bg-[#d4502a]">Plan your first trip</button>
+        </div>
+      ) : (
+        <ol className="stagger space-y-3">
+          {valid.map((t) => {
+            const st = statusLabel(t.status);
+            return (
+              <li key={t.id}>
+                <button onClick={() => onOpen(t)} className="flex w-full items-center justify-between gap-4 rounded-2xl border border-[#15110c]/10 bg-white p-5 text-left transition hover:border-[#e8643c] hover:shadow-[0_12px_40px_-18px_rgba(0,0,0,0.2)]">
+                  <div className="min-w-0">
+                    <div className="font-semibold">{t.trip!.days} days in {t.trip!.destination}</div>
+                    <div className="mt-1 truncate text-sm text-[#15110c]/55">{t.trip!.party} travellers · {t.trip!.budget} · {(t.days?.length ?? 0)} nights</div>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${st.cls}`}>{st.text}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
   );
 }
 

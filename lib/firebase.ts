@@ -2,8 +2,10 @@
 // no-op when the config is absent, so the app runs fine with zero Firebase
 // setup and starts persisting the moment the env vars land.
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAuth, signInAnonymously, type Auth } from "firebase/auth";
-import { getFirestore, doc, setDoc, serverTimestamp, type Firestore } from "firebase/firestore";
+import { getAuth, signInAnonymously, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from "firebase/auth";
+import { getFirestore, doc, setDoc, serverTimestamp, collection, query, where, limit, getDocs, type Firestore } from "firebase/firestore";
+
+export type TripUser = { uid: string; name: string | null; email: string | null; photo: string | null };
 
 const cfg = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -36,6 +38,53 @@ async function uid(): Promise<string | null> {
     }
   }
   return auth.currentUser?.uid ?? null;
+}
+
+function toTripUser(u: User | null): TripUser | null {
+  if (!u || u.isAnonymous) return null;
+  return { uid: u.uid, name: u.displayName, email: u.email, photo: u.photoURL };
+}
+
+// Subscribe to real (non-anonymous) sign-in state. Returns an unsubscribe fn.
+export function onAuthChange(cb: (u: TripUser | null) => void): () => void {
+  if (!auth) { cb(null); return () => {}; }
+  return onAuthStateChanged(auth, (u) => cb(toTripUser(u)));
+}
+
+export async function signInWithGoogle(): Promise<TripUser | null> {
+  if (!auth) return null;
+  try {
+    const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+    return toTripUser(cred.user);
+  } catch (e) {
+    console.warn("sign-in failed", e);
+    return null;
+  }
+}
+
+export async function signOutUser() {
+  if (auth) {
+    try { await signOut(auth); } catch { /* no-op */ }
+  }
+}
+
+// The signed-in user's saved trips, newest first. Empty without auth/config.
+export type TripRow = { id: string; [key: string]: unknown };
+export async function listTrips(userId: string): Promise<TripRow[]> {
+  if (!db || !userId) return [];
+  try {
+    const snap = await getDocs(query(collection(db, "trips"), where("userId", "==", userId), limit(50)));
+    const rows: TripRow[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
+    rows.sort((a, b) => toMillis(b.updatedAt) - toMillis(a.updatedAt));
+    return rows;
+  } catch (e) {
+    console.warn("listTrips failed", e);
+    return [];
+  }
+}
+function toMillis(t: unknown): number {
+  const ts = t as { toMillis?: () => number } | undefined;
+  return ts?.toMillis ? ts.toMillis() : 0;
 }
 
 // Merge-write a trip doc. Safe to call repeatedly as the trip progresses
