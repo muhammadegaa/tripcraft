@@ -70,8 +70,15 @@ function newId() {
     return `t_${Date.now()}`;
   }
 }
-function mapsUrl(place: string) {
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place)}`;
+// In-platform interactive maps. Keyless Google Maps embed renders a real,
+// pannable map inside an iframe (no new tab, no API key). `q` for a single
+// place, `saddr`/`daddr` (with +to: waypoints) for a walking route.
+function placeEmbedUrl(place: string) {
+  return `https://maps.google.com/maps?q=${encodeURIComponent(place)}&z=15&output=embed`;
+}
+function routeEmbedUrl(origin: string, points: string[]) {
+  const daddr = points.map(encodeURIComponent).join("+to:");
+  return `https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}&daddr=${daddr}&output=embed`;
 }
 
 export default function Page() {
@@ -525,9 +532,12 @@ function PlanDay({ d }: { d: Day }) {
         <HotelRow hotel={d.hotel} city={d.city} />
         <ol className="mt-1 space-y-3">
           {d.stops.map((s, i) => (
-            <StopRow key={i} stop={s} />
+            <StopRow key={i} stop={s} city={d.city} />
           ))}
         </ol>
+        {d.stops.length > 0 && (
+          <EmbedMap src={routeEmbedUrl(`${d.hotel.name}, ${d.city}`, d.stops.map((s) => `${s.place}, ${d.city}`))} label={`See the day ${d.n} walking route`} />
+        )}
         <p className="pt-1 text-sm text-[#e8643c]">🍜 {d.food}</p>
       </div>
     </li>
@@ -589,7 +599,7 @@ function HotelRow({ hotel, city }: { hotel: Hotel; city: string }) {
   );
 }
 
-function StopRow({ stop }: { stop: Stop }) {
+function StopRow({ stop, city }: { stop: Stop; city: string }) {
   const d = usePlace(stop.place);
   return (
     <li className="flex gap-3">
@@ -600,13 +610,40 @@ function StopRow({ stop }: { stop: Stop }) {
           <span className="font-medium">{stop.title}</span>
           {d?.rating ? <span className="shrink-0 text-xs text-[#15110c]/45">★ {d.rating}</span> : null}
         </div>
-        <p className="mt-0.5 text-xs text-[#15110c]/55">
-          ↳ {stop.directions}{" "}
-          <a href={mapsUrl(stop.place)} target="_blank" rel="noreferrer" className="font-medium text-[#e8643c] underline-offset-2 hover:underline">open in Maps ↗</a>
-        </p>
+        <p className="mt-0.5 text-xs text-[#15110c]/55">↳ {stop.directions}</p>
         {stop.tip && <p className="mt-1 text-xs text-[#15110c]/55">💡 {stop.tip}</p>}
+        <EmbedMap src={placeEmbedUrl(`${stop.place}, ${city}`)} />
       </div>
     </li>
+  );
+}
+
+// Collapsible interactive map embedded in the page. The iframe only mounts when
+// opened, so a plan with many stops doesn't load dozens of maps at once.
+function EmbedMap({ src, label = "View on map" }: { src: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1.5">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-xs font-medium text-[#e8643c] underline-offset-2 hover:underline"
+      >
+        🗺️ {open ? "Hide map" : label} <span className="text-[10px]">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 overflow-hidden rounded-xl border border-[#15110c]/10">
+          <iframe
+            src={src}
+            title={label}
+            loading="lazy"
+            className="h-56 w-full"
+            style={{ border: 0 }}
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
