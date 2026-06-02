@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { unstable_cache } from "next/cache";
 import { parseTrip, generate, type Day, type Ticket } from "@/lib/itinerary";
+import { rateLimited } from "@/lib/ratelimit";
+import { log, captureError } from "@/lib/log";
 
 // Itinerary generation takes ~15-30s; allow up to 60s (Vercel Pro) so it doesn't
 // time out and fall back to the canned plan in production.
@@ -154,17 +156,6 @@ const generateItinerary = unstable_cache(
   { revalidate: 60 * 60 * 24 * 7 }
 );
 
-// Soft per-IP rate limit (per warm instance) so a burst of distinct prompts
-// can't drain credits. Robust durable limiting would use Vercel KV.
-const RL = new Map<string, { n: number; reset: number }>();
-function rateLimited(ip: string, maxPerHour = 20): boolean {
-  const now = Date.now();
-  const cur = RL.get(ip);
-  if (!cur || now > cur.reset) { RL.set(ip, { n: 1, reset: now + 3_600_000 }); return false; }
-  cur.n += 1;
-  return cur.n > maxPerHour;
-}
-
 export async function POST(req: Request) {
   let input = "";
   try {
@@ -172,7 +163,9 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "bad request" }, { status: 400 });
   }
-  if (input.trim().length < 8) return Response.json({ error: "input too short" }, { status: 400 });
+  const trimmed = input.trim();
+  if (trimmed.length < 8) return Response.json({ error: "input too short" }, { status: 400 });
+  if (trimmed.length > 2000) return Response.json({ error: "input too long" }, { status: 400 });
   const trip = parseTrip(input);
 
   // Never spend credits when: dev mode forces canned, there's no key, or the
@@ -181,14 +174,17 @@ export async function POST(req: Request) {
     return Response.json({ days: generate(trip), source: "canned" });
   }
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
-  if (rateLimited(ip)) {
+  if (await rateLimited(`gen:${ip}`, 20, 3600)) {
+    log.warn("generate_rate_limited", { ip });
     return Response.json({ days: generate(trip), source: "rate_limited" });
   }
 
   try {
     const days = await generateItinerary(input);
+    log.info("generate_ok", { destination: trip.destination, days: days.length });
     return Response.json({ days, source: "claude" });
   } catch (e) {
+    captureError("generate_failed", e, { destination: trip.destination });
     return Response.json({ days: generate(trip), source: "fallback", error: String(e) });
   }
 }

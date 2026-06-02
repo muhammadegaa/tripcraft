@@ -9,21 +9,23 @@ Everything the UI claims must be true.
 
 | Feature | State |
 |---|---|
-| AI itinerary (Claude) | Real **when funded** — currently OUT OF CREDITS, serving canned plans |
+| AI itinerary (Claude) | Real **when funded** — on failure now shows an honest error, never canned-as-real. Currently OUT OF CREDITS so prod shows the error state |
 | Place photos / ratings / reviews (Google Places) | **Real** |
-| Flight search (Duffel) | **Real** offers |
-| Flight booking / "ticket" | **FAKE** — sandbox can't book real-airline offers, so we mint a fake reference |
-| Hotel search + book (LiteAPI) | Real, but **sandbox** (not production inventory/payments) |
-| Payment (Stripe) | Real Payment Element, **test mode** |
-| Directions | **FAKE** — hardcoded map squiggle, fixed "8 min", generic steps |
-| Live companion | **FAKE** — mocked GPS + time + progress |
-| Trip agent | **FAKE** — canned keyword replies, scripted "thinking" |
-| Itinerary prices | **FAKE** — invented by the LLM, not quotes |
-| Currency | **INCONSISTENT** — flights GBP, hotels USD, budget IDR, total summed with a hardcoded FX table |
+| Directions | **Real** — Google Maps deep links per stop (was a hardcoded squiggle) |
+| Booking | **Real hand-off** — affiliate deep links to Skyscanner + Booking.com, pre-filled from the plan (was fake in-app tickets) |
+| Live companion | **Removed** (was mocked GPS/time/progress) |
+| Trip agent | **Removed** (was canned keyword replies) |
+| Itinerary prices | LLM **estimates**, labeled "estimates" in the UI — not live quotes |
+| Currency | Consistent: IDR estimates in the plan, live prices shown on the partner sites. The mixed-currency in-app checkout is gone |
+| Rate limiting | Durable via Upstash when configured, in-memory fallback otherwise |
+| Error observability | Structured JSON logging (`lib/log.ts`); Sentry still TODO |
+| Input validation | Min/max length caps on generate + improve; external fetches time out |
 | Auth + My Trips + airport autocomplete | **Real** |
-| Error handling / observability / tests | **Missing** |
+| Tests / CI | **Missing** |
 
-Verdict: a strong prototype, **not launch-ready**. Shipping as-is would mislead users.
+Verdict: Phase 0 honesty cut **done** — the UI no longer claims anything it can't back up. Still pre-launch: needs Claude credits, Sentry, key restrictions, tests/CI, legal.
+
+Gated v2 (disconnected from UI): Duffel/LiteAPI/Stripe routes exist for real in-app booking once accreditations land.
 
 ---
 

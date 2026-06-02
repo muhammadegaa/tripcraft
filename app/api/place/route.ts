@@ -22,6 +22,7 @@ export async function GET(req: Request) {
       body: JSON.stringify({ textQuery: q, maxResultCount: 1 }),
       // cache identical place lookups for a day
       next: { revalidate: 86400 },
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return Response.json({ enabled: true, found: false });
     const json = await res.json();

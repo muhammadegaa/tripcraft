@@ -20,6 +20,7 @@ export async function GET(req: Request) {
     const res = await fetch(`https://api.duffel.com/places/suggestions?query=${encodeURIComponent(q)}`, {
       headers: { Authorization: `Bearer ${token}`, "Duffel-Version": "v2", Accept: "application/json" },
       next: { revalidate: 86400 },
+      signal: AbortSignal.timeout(6000),
     });
     const data = ((await res.json())?.data ?? []) as Record<string, unknown>[];
     const results = data

@@ -196,9 +196,11 @@ export default function Page() {
         body: JSON.stringify({ input: brief }),
       });
       const data = await res.json();
-      // Be honest: if real generation didn't happen, show an error and let the
-      // user retry. Never present a canned fallback as a real plan.
-      if (data?.source === "claude" && data.days?.length) {
+      // Be honest. "claude" is real generation; "canned" only happens when no
+      // API key is configured (the documented zero-config demo) so it's fine to
+      // render. "fallback" means Claude WAS configured but failed: never dress
+      // that up as a real plan, show an error and let the user retry.
+      if ((data?.source === "claude" || data?.source === "canned") && data.days?.length) {
         setPendingDays(data.days);
       } else if (data?.source === "rate_limited") {
         track("generate_rate_limited");
@@ -349,7 +351,7 @@ function Nav({ user, onSignIn, onSignOut, onMyTrips, onHome }: { user: TripUser 
 function statusLabel(s?: string): { text: string; cls: string } {
   switch (s) {
     case "booking": return { text: "Flights booked", cls: "bg-[#1f9d6b]/10 text-[#1f9d6b]" };
-    case "reserved": return { text: "Reserved", cls: "bg-[#e8643c]/10 text-[#e8643c]" };
+    case "reserved": return { text: "Saved", cls: "bg-[#e8643c]/10 text-[#e8643c]" };
     default: return { text: "Planned", cls: "bg-[#15110c]/8 text-[#15110c]/60" };
   }
 }
@@ -400,7 +402,7 @@ function Hero({ input, setInput, onGenerate, onImprove, improving }: { input: st
         Your whole trip,<br />planned to the minute.
       </h1>
       <p className="mx-auto mt-5 max-w-xl text-balance text-lg text-[#15110c]/65 animate-rise">
-        Tell us where you&apos;re headed, however you&apos;d say it out loud. We turn it into a real day-by-day plan that holds up: stays in the right neighbourhoods, no exhausting travel days, every booking inside your budget. Reserve now and you&apos;re first to book it when we open.
+        Tell us where you&apos;re headed, however you&apos;d say it out loud. We turn it into a real day-by-day plan that holds up: stays in the right neighbourhoods, no exhausting travel days, everything inside your budget. Then book every flight and hotel through trusted sites in a couple of taps.
       </p>
 
       <div className="mt-7 animate-rise">
@@ -675,7 +677,7 @@ function HowItWorks() {
   const steps = [
     ["Tell us in plain words", "Where you're going, your dates, budget, who's coming, your dealbreakers. No forms."],
     ["We plan the whole thing", "Stays in the right neighbourhoods, no exhausting travel days, every booking inside your budget. Door to door."],
-    ["Reserve and book first", "Save your plan and get early access to book it all in-app, then a guide that travels with you."],
+    ["Book it for real", "Send yourself the plan, then book every flight and hotel through trusted sites with your dates already filled in."],
   ];
   return (
     <section id="how" className="mx-auto max-w-3xl px-6 py-16">
@@ -778,9 +780,9 @@ function ReserveSheet({ destination, onSubmit, onClose }: { destination?: string
   }
   return (
     <Sheet onClose={saving ? undefined : onClose}>
-      <h3 className="text-lg font-semibold">Reserve your {destination ?? "trip"}</h3>
+      <h3 className="text-lg font-semibold">Email yourself this plan</h3>
       <p className="mt-1 text-sm text-[#15110c]/55">
-        We&apos;re opening booking to a small group first. Drop your email and we&apos;ll send this plan, then let you know the moment you can book it in-app.
+        Drop your email and we&apos;ll send the full {destination ?? "trip"} itinerary so you have it on the road. Book whenever you&apos;re ready.
       </p>
       <input
         type="email"
@@ -792,9 +794,9 @@ function ReserveSheet({ destination, onSubmit, onClose }: { destination?: string
         className="mt-4 w-full rounded-xl border border-[#15110c]/12 px-4 py-3 text-sm outline-none focus:border-[#e8643c]"
       />
       <button onClick={submit} disabled={!valid || saving} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-50">
-        {saving ? (<><Spinner /> Reserving…</>) : (<>Reserve my spot</>)}
+        {saving ? (<><Spinner /> Sending…</>) : (<>Email me my plan</>)}
       </button>
-      <p className="mt-3 text-center text-xs text-[#15110c]/40">No spam. Just your plan, and a heads-up when booking opens.</p>
+      <p className="mt-3 text-center text-xs text-[#15110c]/40">No spam. Just your plan, and the occasional travel tip.</p>
     </Sheet>
   );
 }
@@ -802,15 +804,15 @@ function ReserveSheet({ destination, onSubmit, onClose }: { destination?: string
 function Reserved({ trip, days, email, onShare, onRestart }: { trip: Trip; days: Day[]; email: string; onShare: () => void; onRestart: () => void }) {
   const steps = [
     ["Your plan, in your inbox", `We're sending the full ${trip.destination} itinerary to ${email}.`],
-    ["We line up the real prices", "When booking opens, we pull live flight and hotel prices for your dates. No guesswork."],
-    ["You book first", "Early-access travelers get to book the whole trip in-app before anyone else."],
+    ["Book when you're ready", "Open the plan and book each flight and hotel through trusted sites, dates already filled in."],
+    ["A guide for the road", "Every stop links straight to Google Maps directions, so you always know where you're going next."],
   ];
   return (
     <section className="mx-auto max-w-xl px-6 pb-24 pt-10 text-center animate-fade">
       <SuccessCheck />
-      <h2 className="mt-5 text-3xl font-semibold tracking-tight">You&apos;re in.</h2>
+      <h2 className="mt-5 text-3xl font-semibold tracking-tight">Sent. Check your inbox.</h2>
       <p className="mx-auto mt-3 max-w-md text-[#15110c]/65">
-        Your {trip.days}-day {trip.destination} trip is reserved. We&apos;ll email it to <span className="font-medium text-[#15110c]">{email}</span> and tell you the moment booking opens.
+        Your {trip.days}-day {trip.destination} plan is on its way to <span className="font-medium text-[#15110c]">{email}</span>. Book it whenever you&apos;re ready, no rush.
       </p>
 
       <div className="mt-7 rounded-2xl border border-[#15110c]/10 bg-white p-5 text-left">

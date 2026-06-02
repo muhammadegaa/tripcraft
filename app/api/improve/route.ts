@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { rateLimited } from "@/lib/ratelimit";
+import { captureError } from "@/lib/log";
 
 export const maxDuration = 30;
 
@@ -30,10 +32,16 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "bad request" }, { status: 400 });
   }
-  if (input.trim().length < 3) return Response.json({ error: "too short" }, { status: 400 });
+  const trimmed = input.trim();
+  if (trimmed.length < 3) return Response.json({ error: "too short" }, { status: 400 });
+  if (trimmed.length > 2000) return Response.json({ error: "too long" }, { status: 400 });
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ improved: heuristic(input), source: "heuristic" });
+  }
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
+  if (await rateLimited(`improve:${ip}`, 40, 3600)) {
+    return Response.json({ improved: heuristic(input), source: "rate_limited" });
   }
 
   try {
@@ -49,6 +57,7 @@ export async function POST(req: Request) {
     const improved = block && "text" in block ? block.text.trim() : "";
     return Response.json({ improved: improved || heuristic(input), source: improved ? "claude" : "heuristic" });
   } catch (e) {
+    captureError("improve_failed", e);
     return Response.json({ improved: heuristic(input), source: "fallback", error: String(e) });
   }
 }
