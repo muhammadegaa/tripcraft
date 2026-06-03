@@ -1,21 +1,28 @@
 import { test, expect } from "@playwright/test";
 
-// These cover the flows a logged-out visitor can reach. Generation is gated
-// behind Google sign-in, which can't run headless, so it's covered manually.
-// The point of this suite: catch a deploy that breaks the public surface.
+// Public-surface smoke tests. The app lives at /app behind the marketing
+// landing at /. Generation is gated behind Google sign-in (can't run headless),
+// so that's covered manually.
 
-test("home loads and gates planning behind sign-in", async ({ page }) => {
+test("landing page loads with hero and a CTA into the app", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: /planned/i, level: 1 })).toBeVisible();
+  await expect(page.getByRole("link", { name: /plan a trip/i }).first()).toBeVisible();
+  // CTA points at the app
+  const appLink = page.locator('a[href="/app"]').first();
+  await expect(appLink).toBeVisible();
+});
+
+test("app gates planning behind sign-in", async ({ page }) => {
+  await page.goto("/app");
   await expect(page.getByRole("heading", { name: /planned to the minute/i })).toBeVisible();
-  // Not signed in: the primary CTA must ask for sign-in, not plan directly.
   await expect(page.getByRole("button", { name: /sign in to plan/i })).toBeVisible();
 });
 
 test("typing a brief still shows the gated CTA, not a plan", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/app");
   await page.locator("textarea").fill("5 days in Lisbon, 2 people, seafood and viewpoints");
   await page.getByRole("button", { name: /sign in to plan/i }).click();
-  // Sign-in popup can't complete headless, so we must stay on the input page.
   await expect(page.getByRole("heading", { name: /planned to the minute/i })).toBeVisible();
 });
 
@@ -27,11 +34,9 @@ test("legal pages render", async ({ page }) => {
 });
 
 test("email deep link opens in-app booking with options", async ({ page }) => {
-  await page.goto("/?book=1&dest=Lisbon&days=4&party=2");
+  await page.goto("/app?book=1&dest=Lisbon&days=4&party=2");
   await expect(page.getByRole("heading", { name: /Book your 4-day Lisbon trip/i })).toBeVisible();
-  // Hotels load (demo data in CI). At least one selectable option appears.
   await expect(page.getByText(/nights/i).first()).toBeVisible({ timeout: 15_000 });
-  // No external booking tabs anywhere on the page.
   const externalLinks = await page.locator("a[href*='skyscanner'], a[href*='booking.com']").count();
   expect(externalLinks).toBe(0);
 });

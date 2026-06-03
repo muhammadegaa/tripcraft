@@ -39,7 +39,7 @@ function buildHtml(destination: string, days: Day[], party: number, appUrl: stri
     })
     .join("");
 
-  const bookUrl = `${appUrl}/?book=1&dest=${encodeURIComponent(destination)}&days=${days.length}&party=${party}`;
+  const bookUrl = `${appUrl}/app?book=1&dest=${encodeURIComponent(destination)}&days=${days.length}&party=${party}`;
   const bookBlock = appUrl
     ? `<div style="border:1px solid #eee;border-radius:14px;padding:16px;margin:0 0 22px;text-align:center">
         <div style="font-weight:600;margin:0 0 6px">Book it in the app</div>
