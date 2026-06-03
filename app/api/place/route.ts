@@ -30,12 +30,14 @@ export async function GET(req: Request) {
     if (!p) return Response.json({ enabled: true, found: false });
 
     const review = p.reviews?.[0];
+    const photoNames: string[] = (p.photos ?? []).map((ph: { name?: string }) => ph?.name).filter(Boolean).slice(0, 8);
     return Response.json({
       enabled: true,
       found: true,
       rating: p.rating ?? null,
       reviews: p.userRatingCount ?? null,
-      photoName: p.photos?.[0]?.name ?? null,
+      photoName: photoNames[0] ?? null,
+      photoNames,
       review: review
         ? { text: (review.text?.text ?? "").slice(0, 160), author: review.authorAttribution?.displayName ?? null, rating: review.rating ?? null }
         : null,

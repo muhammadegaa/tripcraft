@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { config } from "@/lib/config";
 import { burstConfetti } from "@/lib/confetti";
 import { saveTrip, saveLead, onAuthChange, signInWithGoogle, signOutUser, listTrips, type TripUser } from "@/lib/firebase";
+import { CurrencyProvider, useCurrency } from "@/app/currency";
+import { CURRENCIES, parseAmount } from "@/lib/currency";
 import { track as vaTrack } from "@vercel/analytics";
 import Booking from "./Booking";
 import {
@@ -27,9 +29,14 @@ const TEMPLATES = [
 ];
 
 type Phase = "input" | "generating" | "plan" | "live" | "reserved" | "booking" | "trips";
-type PickSummary = { label: string; sub: string };
-type TripPicks = { flight: PickSummary | null; hotel: PickSummary | null };
-type SavedTrip = { id: string; trip?: Trip; days?: Day[]; status?: string; picks?: TripPicks; updatedAt?: unknown };
+type TripBooking = {
+  destination: string;
+  flight: { ref: string; airline: string; route: string; times: string; price: number; currency: string } | null;
+  hotel: { id: string; name: string; nights: number; price: number; currency: string } | null;
+  totalDisplay: string;
+  emailedTo: string | null;
+};
+type SavedTrip = { id: string; trip?: Trip; days?: Day[]; status?: string; booking?: TripBooking; updatedAt?: unknown };
 type Msg = { id: number; role: "user" | "agent"; text?: string; steps?: string[]; pending?: boolean };
 type Toast = { id: number; text: string; icon: string };
 type Profile = { pace: string | null; interests: string[]; mustHaves: string[] };
@@ -142,19 +149,14 @@ export default function Page() {
     setTrips((await listTrips(user.uid)) as SavedTrip[]);
     setTripsLoading(false);
   }
-  // Persist the user's flight/hotel picks onto their trip so they survive a
-  // refresh and show up in My Trips. Requires a real account, like planning.
-  async function savePicks(picks: { flight: PickSummary | null; hotel: PickSummary | null }): Promise<boolean> {
-    if (!user) {
-      const u = await signIn();
-      if (!u) { pushToast("Sign in to save your picks", "🔒"); return false; }
-    }
+  // Persist a completed booking onto the trip so the confirmation + numbers show
+  // up in My Trips. Best effort: saves only if signed in (booking still works
+  // for guests via the email confirmation).
+  function saveBooking(b: { confirmation: TripBooking; status: string }) {
     const id = tripId || newId();
     if (!tripId) setTripId(id);
-    saveTrip(id, { trip, status: "picks_selected", picks });
-    track("picks_saved", { destination: trip?.destination ?? "" });
-    pushToast("Saved to your trips", "✓");
-    return true;
+    saveTrip(id, { trip, status: b.status, booking: b.confirmation });
+    track("booking_completed", { destination: trip?.destination ?? "" });
   }
 
   function openSavedTrip(t: SavedTrip) {
@@ -337,6 +339,7 @@ export default function Page() {
   }
 
   return (
+    <CurrencyProvider>
     <main className="min-h-screen bg-[#faf7f2] text-[#15110c]">
       <Nav user={user} onSignIn={signIn} onSignOut={signOut} onMyTrips={openTrips} onHome={restart} />
 
@@ -351,7 +354,7 @@ export default function Page() {
         <Plan trip={trip!} days={days} onBooking={goBooking} onReserve={openReserve} onRestart={restart} />
       )}
       {phase === "booking" && (
-        <Booking trip={trip!} days={days} onBack={() => setPhase("plan")} onSavePicks={savePicks} />
+        <Booking trip={trip!} days={days} onBack={() => setPhase("plan")} onBooked={saveBooking} />
       )}
       {phase === "trips" && (
         <TripsDashboard trips={trips} loading={tripsLoading} onOpen={openSavedTrip} onNew={restart} />
@@ -365,6 +368,23 @@ export default function Page() {
       <Toaster toasts={toasts} />
       <Footer />
     </main>
+    </CurrencyProvider>
+  );
+}
+
+function CurrencySelect() {
+  const { currency, setCurrency } = useCurrency();
+  return (
+    <label className="relative flex items-center" title="Display currency">
+      <select
+        value={currency}
+        onChange={(e) => setCurrency(e.target.value)}
+        className="cursor-pointer appearance-none rounded-full border border-[#15110c]/15 bg-white py-1.5 pl-3 pr-7 text-sm font-medium text-[#15110c]/70 outline-none transition hover:border-[#e8643c]"
+      >
+        {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+      </select>
+      <span className="pointer-events-none absolute right-2.5 text-[10px] text-[#15110c]/40">▾</span>
+    </label>
   );
 }
 
@@ -378,6 +398,7 @@ function Nav({ user, onSignIn, onSignOut, onMyTrips, onHome }: { user: TripUser 
         {config.brandName}
       </button>
       <div className="flex items-center gap-3">
+        <CurrencySelect />
         {user ? (
           <>
             <button onClick={onMyTrips} className="text-sm font-medium text-[#15110c]/70 transition hover:text-[#e8643c]">My trips</button>
@@ -400,6 +421,7 @@ function Nav({ user, onSignIn, onSignOut, onMyTrips, onHome }: { user: TripUser 
 
 function statusLabel(s?: string): { text: string; cls: string } {
   switch (s) {
+    case "booked": return { text: "Booked", cls: "bg-[#1f9d6b]/10 text-[#1f9d6b]" };
     case "picks_selected": return { text: "Flights + hotel picked", cls: "bg-[#1f9d6b]/10 text-[#1f9d6b]" };
     case "reserved": return { text: "Emailed", cls: "bg-[#e8643c]/10 text-[#e8643c]" };
     default: return { text: "Planned", cls: "bg-[#15110c]/8 text-[#15110c]/60" };
@@ -431,9 +453,11 @@ function TripsDashboard({ trips, loading, onOpen, onNew }: { trips: SavedTrip[];
                   <div className="min-w-0">
                     <div className="font-semibold">{t.trip!.days} days in {t.trip!.destination}</div>
                     <div className="mt-1 truncate text-sm text-[#15110c]/55">{t.trip!.party} travellers · {t.trip!.budget} · {(t.days?.length ?? 0)} nights</div>
-                    {t.picks && (t.picks.flight || t.picks.hotel) && (
+                    {t.booking && (t.booking.flight || t.booking.hotel) && (
                       <div className="mt-1.5 truncate text-xs text-[#1f9d6b]">
-                        {t.picks.flight ? `✈️ ${t.picks.flight.label}` : ""}{t.picks.flight && t.picks.hotel ? " · " : ""}{t.picks.hotel ? `🏨 ${t.picks.hotel.label}` : ""}
+                        {t.booking.flight ? `✈️ ${t.booking.flight.airline} · ${t.booking.flight.ref}` : ""}
+                        {t.booking.flight && t.booking.hotel ? " · " : ""}
+                        {t.booking.hotel ? `🏨 ${t.booking.hotel.name} · ${t.booking.hotel.id}` : ""}
                       </div>
                     )}
                   </div>
@@ -566,7 +590,14 @@ function Plan({ trip, days, onBooking, onReserve, onRestart }: {
   );
 }
 
+// Plan prices are generated in USD; show them in the user's chosen currency.
+function priceIn(raw: string, show: (amount: number, from: string) => string): string {
+  const n = parseAmount(raw);
+  return n ? show(n, "USD") : raw;
+}
+
 function PlanDay({ d }: { d: Day }) {
+  const { show } = useCurrency();
   return (
     <li className="overflow-hidden rounded-2xl border border-[#15110c]/10 bg-white transition hover:shadow-[0_12px_40px_-18px_rgba(0,0,0,0.25)]">
       <div className="flex items-baseline justify-between gap-4 border-b border-[#15110c]/8 px-5 py-3">
@@ -575,7 +606,7 @@ function PlanDay({ d }: { d: Day }) {
       </div>
       <div className="space-y-3 px-5 py-4">
         {d.tickets.map((t, i) => (
-          <InfoRow key={i} icon={t.icon} title={t.mode} sub={`${t.from} → ${t.to} · ${t.depart}–${t.arrive} · ${t.dur} · ~${t.price}`} flag={t.flag} />
+          <InfoRow key={i} icon={t.icon} title={t.mode} sub={`${t.from} → ${t.to} · ${t.depart}–${t.arrive} · ${t.dur} · ~${priceIn(t.price, show)}`} flag={t.flag} />
         ))}
         <HotelRow hotel={d.hotel} city={d.city} />
         <ol className="mt-1 space-y-3">
@@ -631,13 +662,14 @@ function PlaceThumb({ place, data }: { place: string; data?: PlaceData }) {
 function HotelRow({ hotel, city }: { hotel: Hotel; city: string }) {
   const q = `${hotel.name} ${city}`;
   const d = usePlace(q);
+  const { show } = useCurrency();
   return (
     <div className="flex gap-3 rounded-xl border border-[#15110c]/10 bg-[#faf7f2] p-3">
       <PlaceThumb place={q} data={d} />
       <div className="min-w-0 flex-1 text-sm">
         <div className="truncate font-medium">🏨 {hotel.name}</div>
         <div className="mt-1 text-xs text-[#15110c]/55">
-          {d?.rating ? `★ ${d.rating} (${(d.reviews ?? 0).toLocaleString()})` : `★ ${hotel.rating}`} · {hotel.walk} · ~{hotel.price}
+          {d?.rating ? `★ ${d.rating} (${(d.reviews ?? 0).toLocaleString()})` : `★ ${hotel.rating}`} · {hotel.walk} · ~{priceIn(hotel.price, show)}
         </div>
         {d?.review?.text ? (
           <p className="mt-1.5 line-clamp-2 text-xs italic text-[#15110c]/55">“{d.review.text}”{d.review.author ? `, ${d.review.author}` : ""}</p>

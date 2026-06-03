@@ -26,7 +26,7 @@ Hard rules you MUST respect:
 - No single transit leg should exceed 2 hours. If one is close, note it in "flag".
 - Keep the whole trip realistic for the stated budget.
 - Use real, specific places, stations, lines, and plausible times (24h "HH:MM").
-- Prices as short Indonesian rupiah strings, e.g. "IDR 1,4jt" (per night for hotels) or "IDR 360rb" (tickets).
+- Prices as short US dollar strings with a dollar sign and digits only, e.g. "$120" (per night for hotels) or "$15" (tickets). Always USD, never another currency. These are rough estimates.
 - "directions" should be concrete and walkable (e.g. "5 min walk from the south exit").
 - "place" must be a searchable place name.
 - 3 to 4 stops per day, 1 to 2 transport tickets per day. Be concise.
