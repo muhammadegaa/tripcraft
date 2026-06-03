@@ -6,6 +6,7 @@ import { burstConfetti } from "@/lib/confetti";
 import { saveTrip, saveLead, onAuthChange, signInWithGoogle, signOutUser, listTrips, type TripUser } from "@/lib/firebase";
 import { CurrencyProvider, useCurrency } from "@/app/currency";
 import { CURRENCIES, parseAmount } from "@/lib/currency";
+import { GalleryProvider, useGallery } from "@/app/Lightbox";
 import { track as vaTrack } from "@vercel/analytics";
 import Booking from "./Booking";
 import {
@@ -340,6 +341,7 @@ export default function Page() {
 
   return (
     <CurrencyProvider>
+    <GalleryProvider>
     <main className="min-h-screen bg-[#faf7f2] text-[#15110c]">
       <Nav user={user} onSignIn={signIn} onSignOut={signOut} onMyTrips={openTrips} onHome={restart} />
 
@@ -368,6 +370,7 @@ export default function Page() {
       <Toaster toasts={toasts} />
       <Footer />
     </main>
+    </GalleryProvider>
     </CurrencyProvider>
   );
 }
@@ -624,7 +627,7 @@ function PlanDay({ d }: { d: Day }) {
 }
 
 /* place enrichment: real photo + rating + review via Google Places (graceful) */
-type PlaceData = { enabled?: boolean; found?: boolean; rating?: number | null; reviews?: number | null; photoName?: string | null; review?: { text: string; author: string | null; rating: number | null } | null };
+type PlaceData = { enabled?: boolean; found?: boolean; rating?: number | null; reviews?: number | null; photoName?: string | null; photoNames?: string[]; review?: { text: string; author: string | null; rating: number | null } | null };
 const placeCache = new Map<string, PlaceData>();
 
 function usePlace(place?: string): PlaceData | undefined {
@@ -642,20 +645,41 @@ function usePlace(place?: string): PlaceData | undefined {
   return data;
 }
 
-function PlaceThumb({ place, data }: { place: string; data?: PlaceData }) {
-  const src = data?.photoName ? `/api/place-photo?name=${encodeURIComponent(data.photoName)}` : null;
+function PlaceThumb({ place, data, size = "sm" }: { place: string; data?: PlaceData; size?: "sm" | "lg" }) {
+  const { open } = useGallery();
+  const names = data?.photoNames?.length ? data.photoNames : data?.photoName ? [data.photoName] : [];
+  const src = names[0] ? `/api/place-photo?name=${encodeURIComponent(names[0])}` : null;
+  const dims = size === "lg" ? "h-24 w-24" : "h-16 w-16";
+  const clickable = names.length > 0;
+
+  function openGallery(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!names.length) return;
+    open(names.map((n) => `/api/place-photo?name=${encodeURIComponent(n)}&w=1280&h=960`), place);
+  }
+
   return (
-    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-[#15110c]/5">
+    <button
+      type="button"
+      onClick={openGallery}
+      disabled={!clickable}
+      aria-label={clickable ? `View photos of ${place}` : place}
+      className={`group relative ${dims} shrink-0 overflow-hidden rounded-lg bg-[#15110c]/5 ${clickable ? "cursor-zoom-in" : "cursor-default"}`}
+    >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={place} loading="lazy" className="h-full w-full object-cover" />
+        <img src={src} alt={place} loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-lg text-[#15110c]/20">📍</div>
       )}
       {data?.rating ? (
-        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-1.5 pb-0.5 pt-3 text-[10px] font-semibold text-white">★ {data.rating}</span>
+        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-1.5 pb-0.5 pt-3 text-left text-[10px] font-semibold text-white">★ {data.rating}</span>
       ) : null}
-    </div>
+      {names.length > 1 ? (
+        <span className="absolute right-1 top-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white">{names.length} 📷</span>
+      ) : null}
+    </button>
   );
 }
 
@@ -665,7 +689,7 @@ function HotelRow({ hotel, city }: { hotel: Hotel; city: string }) {
   const { show } = useCurrency();
   return (
     <div className="flex gap-3 rounded-xl border border-[#15110c]/10 bg-[#faf7f2] p-3">
-      <PlaceThumb place={q} data={d} />
+      <PlaceThumb place={q} data={d} size="lg" />
       <div className="min-w-0 flex-1 text-sm">
         <div className="truncate font-medium">🏨 {hotel.name}</div>
         <div className="mt-1 text-xs text-[#15110c]/55">

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Trip, Day } from "@/lib/itinerary";
 import { guessIata, plusDays } from "@/lib/booking-links";
 import { useCurrency } from "@/app/currency";
+import { useGallery } from "@/app/Lightbox";
 
 // In-platform booking that actually completes: pick real flights (Duffel) and
 // hotels (LiteAPI), enter travellers, then book through the APIs and get a
@@ -27,6 +28,18 @@ export default function Booking({ trip, days, onBack, onBooked }: {
   onBooked?: (b: { confirmation: Confirmation; status: string }) => void;
 }) {
   const { show, currency, rates } = useCurrency();
+  const { open: openGallery } = useGallery();
+
+  async function viewHotelPhotos(h: Hotel) {
+    try {
+      const r = await fetch(`/api/hotels/details?id=${encodeURIComponent(h.id)}`);
+      const d = await r.json();
+      const imgs: string[] = d.images?.length ? d.images : h.photo ? [h.photo] : [];
+      if (imgs.length) openGallery(imgs, h.name);
+    } catch {
+      if (h.photo) openGallery([h.photo], h.name);
+    }
+  }
   const [origin, setOrigin] = useState("");
   const [originLabel, setOriginLabel] = useState("");
   const [destination, setDestination] = useState(guessIata(trip.destination));
@@ -257,18 +270,23 @@ export default function Booking({ trip, days, onBack, onBooked }: {
           : (
             <div className="mt-3 space-y-2">
               {hotels.list.map((h) => (
-                <button key={h.id} onClick={() => setPickedHotel((p) => p?.id === h.id ? null : h)} className={card(pickedHotel?.id === h.id)}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {h.photo ? <img src={h.photo} alt={h.name} className="h-14 w-14 shrink-0 rounded-lg object-cover" /> : <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-[#15110c]/5 text-lg">🏨</span>}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{h.name}</div>
-                    <div className="text-xs text-[#15110c]/55">{h.stars ? `${h.stars}★` : ""}{h.rating ? `${h.stars ? " · " : ""}${h.rating}/10${h.reviews ? ` (${h.reviews.toLocaleString()})` : ""}` : ""}</div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    {h.price != null ? <div className="text-sm font-semibold">{show(h.price, h.currency)}</div> : <div className="text-xs text-[#15110c]/45">see rates</div>}
-                    <div className="text-[10px] text-[#15110c]/45">{pickedHotel?.id === h.id ? "selected" : `${nights} nights`}</div>
-                  </div>
-                </button>
+                <div key={h.id} className={card(pickedHotel?.id === h.id)}>
+                  <button type="button" onClick={() => viewHotelPhotos(h)} aria-label={`View photos of ${h.name}`} className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-[#15110c]/5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {h.photo ? <img src={h.photo} alt={h.name} className="h-full w-full object-cover transition group-hover:scale-105" /> : <span className="grid h-full w-full place-items-center text-xl">🏨</span>}
+                    <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent pb-0.5 pt-3 text-center text-[10px] font-medium text-white opacity-0 transition group-hover:opacity-100">View photos</span>
+                  </button>
+                  <button type="button" onClick={() => setPickedHotel((p) => p?.id === h.id ? null : h)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{h.name}</div>
+                      <div className="text-xs text-[#15110c]/55">{h.stars ? `${h.stars}★` : ""}{h.rating ? `${h.stars ? " · " : ""}${h.rating}/10${h.reviews ? ` (${h.reviews.toLocaleString()})` : ""}` : ""}</div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      {h.price != null ? <div className="text-sm font-semibold">{show(h.price, h.currency)}</div> : <div className="text-xs text-[#15110c]/45">see rates</div>}
+                      <div className="text-[10px] text-[#15110c]/45">{pickedHotel?.id === h.id ? "selected" : `${nights} nights`}</div>
+                    </div>
+                  </button>
+                </div>
               ))}
               {!hotels.list.length && <Empty>No hotels found for these dates.</Empty>}
             </div>
