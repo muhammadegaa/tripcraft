@@ -8,7 +8,7 @@ import { CurrencyProvider, useCurrency } from "@/app/currency";
 import { CURRENCIES, parseAmount } from "@/lib/currency";
 import { GalleryProvider, useGallery } from "@/app/Lightbox";
 import { track as vaTrack } from "@vercel/analytics";
-import Booking from "@/app/Booking";
+import Booking, { Tickets, type Confirmation } from "@/app/Booking";
 import {
   parseTrip,
   generate,
@@ -29,15 +29,8 @@ const TEMPLATES = [
   { label: "👨‍👩‍👧 Family Europe", prompt: "7 days in Europe with two kids (6 and 9), around €6,000. Easy pace, a castle or a theme park, kid-friendly food, central hotels, short transfers only." },
 ];
 
-type Phase = "input" | "generating" | "plan" | "live" | "reserved" | "booking" | "trips";
-type TripBooking = {
-  destination: string;
-  flight: { ref: string; airline: string; route: string; times: string; price: number; currency: string } | null;
-  hotel: { id: string; name: string; nights: number; price: number; currency: string } | null;
-  totalDisplay: string;
-  emailedTo: string | null;
-  receiptUrl?: string | null;
-};
+type Phase = "input" | "generating" | "plan" | "reserved" | "booking" | "tickets" | "trips";
+type TripBooking = Confirmation;
 type SavedTrip = { id: string; trip?: Trip; days?: Day[]; status?: string; booking?: TripBooking; updatedAt?: unknown };
 type Msg = { id: number; role: "user" | "agent"; text?: string; steps?: string[]; pending?: boolean };
 type Toast = { id: number; text: string; icon: string };
@@ -99,6 +92,7 @@ export default function Page() {
   const [days, setDays] = useState<Day[]>([]);
   const [pendingDays, setPendingDays] = useState<Day[] | null>(null);
   const [planSource, setPlanSource] = useState<string>("claude");
+  const [viewBooking, setViewBooking] = useState<TripBooking | null>(null);
   const [step, setStep] = useState(0);
   const [tripId, setTripId] = useState<string>("");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -362,7 +356,10 @@ export default function Page() {
         <Booking trip={trip!} days={days} onBack={() => setPhase("plan")} onBooked={saveBooking} />
       )}
       {phase === "trips" && (
-        <TripsDashboard trips={trips} loading={tripsLoading} onOpen={openSavedTrip} onNew={restart} />
+        <TripsDashboard trips={trips} loading={tripsLoading} onOpen={openSavedTrip} onTickets={(b) => { setViewBooking(b); setPhase("tickets"); }} onNew={restart} />
+      )}
+      {phase === "tickets" && viewBooking && (
+        <TicketsView booking={viewBooking} onBack={() => setPhase("trips")} />
       )}
       {phase === "reserved" && (
         <Reserved trip={trip!} days={days} email={reservedEmail} onShare={shareTrip} onRestart={restart} />
@@ -434,7 +431,12 @@ function statusLabel(s?: string): { text: string; cls: string } {
   }
 }
 
-function TripsDashboard({ trips, loading, onOpen, onNew }: { trips: SavedTrip[]; loading: boolean; onOpen: (t: SavedTrip) => void; onNew: () => void }) {
+function TicketsView({ booking, onBack }: { booking: TripBooking; onBack: () => void }) {
+  const { show } = useCurrency();
+  return <Tickets conf={booking} show={show} onBack={onBack} />;
+}
+
+function TripsDashboard({ trips, loading, onOpen, onTickets, onNew }: { trips: SavedTrip[]; loading: boolean; onOpen: (t: SavedTrip) => void; onTickets: (b: TripBooking) => void; onNew: () => void }) {
   const valid = trips.filter((t) => t.trip && t.days);
   return (
     <section className="mx-auto max-w-3xl px-6 pb-24 pt-4 animate-fade">
@@ -469,8 +471,13 @@ function TripsDashboard({ trips, loading, onOpen, onNew }: { trips: SavedTrip[];
                   </div>
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${st.cls}`}>{st.text}</span>
                 </button>
-                {t.booking?.receiptUrl && (
-                  <a href={t.booking.receiptUrl} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 px-1 text-xs font-medium text-[#15110c]/55 transition hover:text-[#e8643c]">🧾 View Stripe receipt ↗</a>
+                {t.booking && (t.booking.flight || t.booking.hotel) && (
+                  <div className="mt-1.5 flex items-center gap-4 px-1">
+                    <button onClick={() => onTickets(t.booking!)} className="inline-flex items-center gap-1 text-xs font-semibold text-[#e8643c] transition hover:underline">View tickets →</button>
+                    {t.booking.receiptUrl && (
+                      <a href={t.booking.receiptUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-[#15110c]/55 transition hover:text-[#e8643c]">View Stripe receipt ↗</a>
+                    )}
+                  </div>
                 )}
               </li>
             );

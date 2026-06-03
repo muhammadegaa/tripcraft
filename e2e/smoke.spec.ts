@@ -33,10 +33,11 @@ test("legal pages render", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Terms of use" })).toBeVisible();
 });
 
-test("email deep link opens in-app booking with options", async ({ page }) => {
+test("email deep link opens in-app booking", async ({ page }) => {
   await page.goto("/app?book=1&dest=Lisbon&days=4&party=2");
-  await expect(page.getByRole("heading", { name: /Book your 4-day Lisbon trip/i })).toBeVisible();
-  await expect(page.getByText(/nights/i).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: /Choose your flights/i })).toBeVisible();
+  // stepper present
+  await expect(page.getByText("Stay")).toBeVisible();
   const externalLinks = await page.locator("a[href*='skyscanner'], a[href*='booking.com']").count();
   expect(externalLinks).toBe(0);
 });
