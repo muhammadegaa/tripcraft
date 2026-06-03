@@ -324,7 +324,7 @@ function MockRow({ icon, title, sub }: { icon: React.ReactNode; title: string; s
 function ItineraryMock() {
   const ic = "size-4 text-[#e8643c]";
   return (
-    <div className="rounded-3xl border border-[#15110c]/10 bg-white p-5 shadow-lift">
+    <div className="animate-float rounded-3xl border border-[#15110c]/10 bg-white p-5 shadow-lift">
       <div className="flex items-center justify-between border-b border-[#15110c]/8 pb-3">
         <div className="text-sm font-semibold">Day 2 · Kyoto</div>
         <span className="rounded-full bg-[#1f9d6b]/10 px-2.5 py-1 text-[11px] font-medium text-[#1f9d6b]">longest leg 17 min</span>
@@ -340,7 +340,7 @@ function ItineraryMock() {
 
 function BookingMock() {
   return (
-    <div className="rounded-3xl border border-[#15110c]/10 bg-white p-5 shadow-lift">
+    <div className="animate-float-2 rounded-3xl border border-[#15110c]/10 bg-white p-5 shadow-lift">
       <div className="flex items-center gap-3 rounded-2xl border border-[#e8643c] bg-[#e8643c]/5 p-3">
         <div className="grid size-10 place-items-center rounded-lg bg-white"><Plane strokeWidth={1.75} className="size-5 text-[#e8643c]" /></div>
         <div className="min-w-0 flex-1">
@@ -378,7 +378,7 @@ function PhoneRow({ icon, title, meta }: { icon: React.ReactNode; title: string;
 function PhoneMock() {
   return (
     <div className="mx-auto w-full max-w-[280px]" data-reveal>
-      <div className="rounded-[2.2rem] border-[6px] border-[#2a241c] bg-[#faf7f2] p-4 shadow-lift">
+      <div className="animate-float-3 rounded-[2.2rem] border-[6px] border-[#2a241c] bg-[#faf7f2] p-4 shadow-lift">
         <div className="mx-auto mb-4 h-1.5 w-16 rounded-full bg-[#2a241c]/30" />
         <div className="text-xs font-medium text-[#15110c]/45">Now</div>
         <div className="mt-1 text-lg font-semibold">Head to Arashiyama</div>

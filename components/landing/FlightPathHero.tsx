@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MapPin } from "lucide-react";
+
+function Chip({ city, className }: { city: string; className: string }) {
+  return (
+    <div className={`absolute flex items-center gap-1.5 rounded-full border border-[#15110c]/8 bg-white/90 px-3 py-1.5 text-xs font-medium text-[#15110c]/75 shadow-soft backdrop-blur ${className}`}>
+      <MapPin strokeWidth={2} className="size-3.5 text-[#e8643c]" />
+      {city}
+    </div>
+  );
+}
 
 // A plane glides along a curved flight path while the dashed trail draws in
 // behind it. The plane is an SVG element animated with SMIL animateMotion along
@@ -22,15 +32,15 @@ export default function FlightPathHero() {
   }, []);
 
   return (
-    <div className="relative mx-auto w-full max-w-[620px]" aria-hidden="true">
-      <svg viewBox="0 0 620 300" className="w-full overflow-visible">
-        <defs>
-          <radialGradient id="glow" cx="50%" cy="35%" r="60%">
-            <stop offset="0%" stopColor="#e8643c" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="#e8643c" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <ellipse cx="310" cy="150" rx="300" ry="150" fill="url(#glow)" />
+    <div className="relative mx-auto w-full max-w-[620px]">
+      <div className="animate-drift pointer-events-none absolute left-1/2 top-[28%] -z-10 h-56 w-80 -translate-x-1/2 rounded-full bg-[#e8643c]/15 blur-3xl" />
+
+      {/* floating destinations reinforce 'anywhere' */}
+      <Chip city="Lisbon" className="left-0 top-[58%] animate-float" />
+      <Chip city="Tokyo" className="left-1/2 top-1 hidden -translate-x-1/2 animate-float-2 sm:flex" />
+      <Chip city="Bali" className="right-0 top-[54%] animate-float-3" />
+
+      <svg viewBox="0 0 620 300" className="w-full overflow-visible" aria-hidden="true">
 
         {/* faint full arc */}
         <path d={ARC} stroke="#e8643c" strokeOpacity="0.16" strokeWidth="2" strokeLinecap="round" fill="none" />
