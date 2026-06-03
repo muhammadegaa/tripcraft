@@ -98,6 +98,7 @@ export default function Page() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [days, setDays] = useState<Day[]>([]);
   const [pendingDays, setPendingDays] = useState<Day[] | null>(null);
+  const [planSource, setPlanSource] = useState<string>("claude");
   const [step, setStep] = useState(0);
   const [tripId, setTripId] = useState<string>("");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -250,11 +251,12 @@ export default function Page() {
         body: JSON.stringify({ input: brief }),
       });
       const data = await res.json();
-      // Be honest. "claude" is real generation; "canned" only happens when no
-      // API key is configured (the documented zero-config demo) so it's fine to
-      // render. "fallback" means Claude WAS configured but failed: never dress
-      // that up as a real plan, show an error and let the user retry.
-      if ((data?.source === "claude" || data?.source === "canned") && data.days?.length) {
+      // "claude" is a live, made-for-you plan. "canned" (no key) and "fallback"
+      // (AI credits exhausted) render a sample itinerary so the full flow stays
+      // demonstrable end to end, clearly flagged as a sample in the UI, never
+      // passed off as a live generation.
+      if (data?.days?.length && ["claude", "canned", "fallback"].includes(data.source)) {
+        setPlanSource(data.source);
         setPendingDays(data.days);
       } else if (data?.source === "rate_limited") {
         track("generate_rate_limited");
@@ -354,7 +356,7 @@ export default function Page() {
       )}
       {phase === "generating" && <Generating step={step} trip={trip!} />}
       {phase === "plan" && (
-        <Plan trip={trip!} days={days} onBooking={goBooking} onReserve={openReserve} onRestart={restart} />
+        <Plan trip={trip!} days={days} demo={planSource !== "claude"} onBooking={goBooking} onReserve={openReserve} onRestart={restart} />
       )}
       {phase === "booking" && (
         <Booking trip={trip!} days={days} onBack={() => setPhase("plan")} onBooked={saveBooking} />
@@ -563,8 +565,8 @@ function Generating({ step, trip }: { step: number; trip: Trip }) {
 
 /* ─────────────────────────── plan ─────────────────────────── */
 
-function Plan({ trip, days, onBooking, onReserve, onRestart }: {
-  trip: Trip; days: Day[]; onBooking: () => void; onReserve: () => void; onRestart: () => void;
+function Plan({ trip, days, demo, onBooking, onReserve, onRestart }: {
+  trip: Trip; days: Day[]; demo?: boolean; onBooking: () => void; onReserve: () => void; onRestart: () => void;
 }) {
   const legs = days.reduce((n, d) => n + d.tickets.length, 0);
   return (
@@ -573,6 +575,12 @@ function Plan({ trip, days, onBooking, onReserve, onRestart }: {
         <button onClick={onRestart} className="text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">← Start over</button>
         <span className="text-xs text-[#15110c]/40">Draft · prices are estimates</span>
       </div>
+      {demo && (
+        <div className="mb-5 flex items-start gap-3 rounded-2xl border border-[#e8643c]/25 bg-[#e8643c]/5 px-4 py-3 text-sm">
+          <span className="mt-0.5 shrink-0 rounded-full bg-[#e8643c] px-2 py-0.5 text-[11px] font-semibold text-white">Demo</span>
+          <p className="text-[#15110c]/70">This is a <span className="font-medium">sample itinerary</span> so you can walk the full flow. With AI credits connected, this is generated live for your exact brief. Everything after this, places, photos, booking, payment, is real.</p>
+        </div>
+      )}
       <h2 className="text-3xl font-semibold tracking-tight animate-rise">{trip.days} days in {trip.destination}</h2>
       <p className="mt-2 text-[#15110c]/60 animate-rise">{trip.party} travellers · {trip.budget} · {trip.interests}</p>
       <div className="mt-5 flex flex-wrap gap-2 animate-rise">

@@ -399,9 +399,10 @@ function Confirmed({ conf, show, onBack }: { conf: Confirmation; show: (a: numbe
     <section className="mx-auto max-w-xl px-6 pb-24 pt-10 animate-fade">
       <div className="text-center">
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#1f9d6b]/15 text-2xl">✓</div>
-        <h2 className="mt-5 text-2xl font-semibold tracking-tight">Booked. You are going to {conf.destination}.</h2>
+        <span className="mt-4 inline-block rounded-full border border-[#15110c]/15 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#15110c]/55">Test booking · demo of the live flow</span>
+        <h2 className="mt-4 text-2xl font-semibold tracking-tight">Booked. You are going to {conf.destination}.</h2>
         <p className="mx-auto mt-2 max-w-sm text-sm text-[#15110c]/60">
-          {conf.emailedTo ? <>Confirmation and tickets are on the way to <span className="font-medium text-[#15110c]">{conf.emailedTo}</span>.</> : "Save your booking numbers below."}
+          {conf.emailedTo ? <>Your confirmation is on the way to <span className="font-medium text-[#15110c]">{conf.emailedTo}</span>. This is exactly what production sends, on a sandbox booking.</> : "Save your booking numbers below."}
         </p>
       </div>
 
