@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "deploy:rules": "firebase deploy --only firestore:rules"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
@@ -26,6 +27,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "firebase-tools": "^15.19.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
