@@ -60,7 +60,7 @@ function Lightbox({ state, setState, onClose }: {
         </div>
       </div>
 
-      <div className="relative flex flex-1 items-center justify-center px-4 pb-2" onClick={stop}>
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 pb-2 sm:px-16" onClick={stop}>
         {photos.length > 1 && <button aria-label="Previous" onClick={() => go(-1)} className={`absolute left-3 ${arrow}`}>‹</button>}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={photos[index]} alt={title} className="max-h-full max-w-full rounded-xl object-contain" />
@@ -68,9 +68,9 @@ function Lightbox({ state, setState, onClose }: {
       </div>
 
       {photos.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto px-5 py-4" onClick={stop}>
+        <div className="flex shrink-0 justify-center gap-2 overflow-x-auto px-5 py-4" onClick={stop}>
           {photos.map((p, i) => (
-            <button key={i} onClick={() => setState((s) => (s ? { ...s, index: i } : s))} className={`h-14 w-20 shrink-0 overflow-hidden rounded-lg ring-2 transition ${i === index ? "ring-white" : "opacity-50 ring-transparent hover:opacity-100"}`}>
+            <button key={i} onClick={() => setState((s) => (s ? { ...s, index: i } : s))} className={`h-16 w-24 shrink-0 overflow-hidden rounded-lg ring-2 transition ${i === index ? "ring-white" : "opacity-50 ring-transparent hover:opacity-100"}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={p} alt="" className="h-full w-full object-cover" />
             </button>
