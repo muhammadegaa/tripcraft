@@ -5,6 +5,15 @@ import type { Trip, Day } from "@/lib/itinerary";
 import { guessIata, plusDays } from "@/lib/booking-links";
 import { useCurrency } from "@/app/currency";
 import { useGallery } from "@/app/Lightbox";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { convert, formatMoney } from "@/lib/currency";
+
+// Stripe is optional: with no publishable key the booking flow skips payment
+// (sandbox) and just confirms. With a key, the user pays and Stripe issues the
+// real receipt.
+const STRIPE_PK = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
 
 // In-platform booking that actually completes: pick real flights (Duffel) and
 // hotels (LiteAPI), enter travellers, then book through the APIs and get a
@@ -21,6 +30,7 @@ type Confirmation = {
   hotel: { id: string; name: string; nights: number; price: number; currency: string } | null;
   totalDisplay: string;
   emailedTo: string | null;
+  receiptUrl: string | null;
 };
 
 export default function Booking({ trip, days, onBack, onBooked }: {
@@ -53,11 +63,14 @@ export default function Booking({ trip, days, onBack, onBooked }: {
   const [pickedFlight, setPickedFlight] = useState<Offer | null>(null);
   const [pickedHotel, setPickedHotel] = useState<Hotel | null>(null);
 
-  const [step, setStep] = useState<"browse" | "details" | "confirming" | "done">("browse");
+  const [step, setStep] = useState<"browse" | "details" | "payment" | "confirming" | "done">("browse");
   const [travelers, setTravelers] = useState<Traveler[]>(Array.from({ length: adults }, () => ({ first: "", last: "" })));
   const [contactEmail, setContactEmail] = useState("");
   const [bookingError, setBookingError] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [clientSecret, setClientSecret] = useState("");
+  const [payIntentId, setPayIntentId] = useState("");
+  const [payLoading, setPayLoading] = useState(false);
 
   useEffect(() => {
     if (destination) return;
@@ -106,10 +119,51 @@ export default function Booking({ trip, days, onBack, onBooked }: {
   const nights = days.length || trip.days;
   function num(v: string | number) { return typeof v === "number" ? v : Number(String(v).replace(/[^0-9.]/g, "")); }
 
-  async function confirmBooking() {
+  // Numeric trip total in the display currency, for the Stripe charge.
+  function totalNum(): number {
+    let t = 0;
+    if (pickedFlight) { const v = convert(num(pickedFlight.price), pickedFlight.currency, currency, rates); if (v != null) t += v; }
+    if (pickedHotel && pickedHotel.price != null) { const v = convert(pickedHotel.price, pickedHotel.currency, currency, rates); if (v != null) t += v; }
+    return Math.round(t);
+  }
+  const totalDisplayStr = (() => { const t = totalNum(); return t > 0 ? formatMoney(t, currency) : ""; })();
+
+  function validateDetails(): boolean {
     setBookingError("");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) { setBookingError("Enter a valid email for your confirmation."); return; }
-    if (travelers.some((t) => !t.first.trim() || !t.last.trim())) { setBookingError("Enter every traveller's first and last name."); return; }
+    if (!pickedFlight && !pickedHotel) { setBookingError("Pick a flight or hotel first."); return false; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) { setBookingError("Enter a valid email for your confirmation."); return false; }
+    if (travelers.some((t) => !t.first.trim() || !t.last.trim())) { setBookingError("Enter every traveller's first and last name."); return false; }
+    return true;
+  }
+
+  // Step 1: charge via Stripe (which issues the real receipt). If Stripe isn't
+  // configured, skip straight to booking.
+  async function proceedToPayment() {
+    if (!validateDetails()) return;
+    const amount = totalNum();
+    if (!stripePromise || amount <= 0) { confirmBooking(); return; }
+    setPayLoading(true);
+    try {
+      const r = await fetch("/api/payment-intent", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount, currency, email: contactEmail, destination: trip.destination }),
+      });
+      const d = await r.json();
+      if (d.simulated || !d.clientSecret) { confirmBooking(); return; }
+      setClientSecret(d.clientSecret);
+      setPayIntentId(d.paymentIntentId || "");
+      setStep("payment");
+    } catch {
+      confirmBooking();
+    } finally {
+      setPayLoading(false);
+    }
+  }
+
+  // Step 2: payment done (or skipped) -> issue the bookings, fetch Stripe's
+  // receipt, email the confirmation.
+  async function confirmBooking(paymentIntentId?: string) {
+    if (!validateDetails()) { setStep("details"); return; }
     setStep("confirming");
     try {
       let flightConf: Confirmation["flight"] = null;
@@ -142,22 +196,32 @@ export default function Booking({ trip, days, onBack, onBooked }: {
       }
 
       // One total in the display currency (real FX), so flight + hotel add up honestly.
-      const { convert, formatMoney } = await import("@/lib/currency");
       let totalDisplay = "";
       const parts: number[] = [];
       if (flightConf) { const v = convert(flightConf.price, flightConf.currency, currency, rates); if (v != null) parts.push(v); }
       if (hotelConf) { const v = convert(hotelConf.price, hotelConf.currency, currency, rates); if (v != null) parts.push(v); }
       if (parts.length) totalDisplay = formatMoney(parts.reduce((a, b) => a + b, 0), currency);
 
-      const conf: Confirmation = { destination: trip.destination, flight: flightConf, hotel: hotelConf, totalDisplay, emailedTo: null };
+      // Stripe's real receipt URL for the charge (if we took payment).
+      let receiptUrl: string | null = null;
+      if (paymentIntentId) {
+        try {
+          const rr = await fetch(`/api/payment-receipt?pi=${encodeURIComponent(paymentIntentId)}`);
+          receiptUrl = (await rr.json()).receiptUrl ?? null;
+        } catch { /* receipt is best effort */ }
+      }
 
-      // Confirmation email with booking numbers + receipt (best effort).
+      const conf: Confirmation = { destination: trip.destination, flight: flightConf, hotel: hotelConf, totalDisplay, emailedTo: null, receiptUrl };
+
+      // Confirmation email with booking numbers, receipt total + Stripe receipt link.
       try {
         const er = await fetch("/api/booking-email", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            email: contactEmail, destination: trip.destination, displayCurrency: currency,
-            flight: flightConf, hotel: hotelConf, total: totalDisplay,
+            email: contactEmail, destination: trip.destination, receiptUrl,
+            flight: flightConf ? { airline: flightConf.airline, route: flightConf.route, times: flightConf.times, ref: flightConf.ref } : null,
+            hotel: hotelConf ? { name: hotelConf.name, nights: hotelConf.nights, id: hotelConf.id } : null,
+            total: totalDisplay,
             flightDisplay: flightConf ? show(flightConf.price, flightConf.currency) : null,
             hotelDisplay: hotelConf ? show(hotelConf.price, hotelConf.currency) : null,
           }),
@@ -177,8 +241,24 @@ export default function Booking({ trip, days, onBack, onBooked }: {
 
   if (step === "done" && confirmation) return <Confirmed conf={confirmation} show={show} onBack={onBack} />;
 
+  if (step === "payment" && clientSecret && stripePromise) {
+    return (
+      <section className="mx-auto max-w-xl px-6 pb-24 pt-4 animate-fade">
+        <button onClick={() => setStep("details")} className="text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">← Back to travellers</button>
+        <h2 className="mt-4 text-2xl font-semibold tracking-tight">Payment</h2>
+        <p className="mt-1 text-sm text-[#15110c]/55">Secure payment by Stripe. Test mode: card 4242 4242 4242 4242, any future date, any CVC.</p>
+        <div className="mt-5 rounded-2xl border border-[#15110c]/10 bg-white p-5">
+          <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe", variables: { colorPrimary: "#e8643c" } } }}>
+            <PaymentForm total={totalDisplayStr} onPaid={() => confirmBooking(payIntentId)} />
+          </Elements>
+        </div>
+        <p className="mt-3 text-center text-xs text-[#15110c]/40">Stripe sends your receipt by email and we add it to your confirmation.</p>
+      </section>
+    );
+  }
+
   if (step === "details" || step === "confirming") {
-    const busy = step === "confirming";
+    const busy = step === "confirming" || payLoading;
     return (
       <section className="mx-auto max-w-xl px-6 pb-24 pt-4 animate-fade">
         <button onClick={() => setStep("browse")} disabled={busy} className="text-sm text-[#15110c]/50 transition hover:text-[#e8643c] disabled:opacity-40">← Back to options</button>
@@ -204,10 +284,10 @@ export default function Booking({ trip, days, onBack, onBooked }: {
 
         {bookingError && <p className="mt-3 text-sm text-[#e8643c]">{bookingError}</p>}
 
-        <button onClick={confirmBooking} disabled={busy || (!pickedFlight && !pickedHotel)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-50">
-          {busy ? <><Spin /> Booking…</> : <>Confirm and book →</>}
+        <button onClick={proceedToPayment} disabled={busy || (!pickedFlight && !pickedHotel)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-50">
+          {busy ? <><Spin /> {payLoading ? "Preparing payment…" : "Booking…"}</> : <>{stripePromise ? `Continue to payment · ${totalDisplayStr || ""}` : "Confirm and book →"}</>}
         </button>
-        <p className="mt-3 text-center text-xs text-[#15110c]/40">Test bookings until our live payment licence is on. You get a real confirmation number and email either way.</p>
+        <p className="mt-3 text-center text-xs text-[#15110c]/40">Payment by Stripe issues your real receipt. Flight + hotel confirmations come from our partners. Live ticketing switches on with our travel licence.</p>
         <style>{IPT}</style>
       </section>
     );
@@ -368,8 +448,42 @@ function Confirmed({ conf, show, onBack }: { conf: Confirmation; show: (a: numbe
         )}
       </div>
 
+      {conf.receiptUrl && (
+        <a href={conf.receiptUrl} target="_blank" rel="noreferrer" className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-[#15110c]/15 bg-white px-5 py-3 text-sm font-semibold text-[#15110c] transition hover:border-[#e8643c] hover:text-[#e8643c]">
+          🧾 View your Stripe receipt ↗
+        </a>
+      )}
+
       <button onClick={onBack} className="mx-auto mt-7 block text-sm text-[#15110c]/50 transition hover:text-[#e8643c]">← Back to plan</button>
     </section>
+  );
+}
+
+function PaymentForm({ total, onPaid }: { total: string; onPaid: () => void }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function pay() {
+    if (!stripe || !elements) return;
+    setBusy(true);
+    setErr("");
+    const { error, paymentIntent } = await stripe.confirmPayment({ elements, redirect: "if_required" });
+    if (error) { setErr(error.message || "Payment failed. Check your card details."); setBusy(false); return; }
+    if (paymentIntent && (paymentIntent.status === "succeeded" || paymentIntent.status === "processing")) { onPaid(); return; }
+    setErr("Payment did not complete. Please try again.");
+    setBusy(false);
+  }
+
+  return (
+    <>
+      <PaymentElement />
+      {err && <p className="mt-3 text-sm text-[#e8643c]">{err}</p>}
+      <button onClick={pay} disabled={!stripe || busy} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e8643c] px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-[#d4502a] disabled:opacity-50">
+        {busy ? <><Spin /> Processing…</> : <>Pay {total} →</>}
+      </button>
+    </>
   );
 }
 

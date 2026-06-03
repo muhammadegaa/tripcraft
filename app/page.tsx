@@ -36,6 +36,7 @@ type TripBooking = {
   hotel: { id: string; name: string; nights: number; price: number; currency: string } | null;
   totalDisplay: string;
   emailedTo: string | null;
+  receiptUrl?: string | null;
 };
 type SavedTrip = { id: string; trip?: Trip; days?: Day[]; status?: string; booking?: TripBooking; updatedAt?: unknown };
 type Msg = { id: number; role: "user" | "agent"; text?: string; steps?: string[]; pending?: boolean };
@@ -466,6 +467,9 @@ function TripsDashboard({ trips, loading, onOpen, onNew }: { trips: SavedTrip[];
                   </div>
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${st.cls}`}>{st.text}</span>
                 </button>
+                {t.booking?.receiptUrl && (
+                  <a href={t.booking.receiptUrl} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 px-1 text-xs font-medium text-[#15110c]/55 transition hover:text-[#e8643c]">🧾 View Stripe receipt ↗</a>
+                )}
               </li>
             );
           })}
