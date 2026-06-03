@@ -18,7 +18,7 @@ type Offer = { id: string; airline: string; airlineLogo: string | null; price: s
 type HotelOpt = { id: string; name: string; photo: string | null; stars: number | null; rating: number | null; reviews: number | null; price: number | null; currency: string; offerId: string | null };
 type Traveler = { first: string; last: string };
 
-export type FlightTicket = { ref: string; airline: string; from: string; to: string; depart: string; arrive: string; roundTrip: boolean; price: number; currency: string };
+export type FlightTicket = { ref: string; airline: string; from: string; to: string; depart: string; arrive: string; roundTrip: boolean; date?: string; returnDate?: string | null; cabin?: string; price: number; currency: string };
 export type HotelVoucher = { id: string; name: string; checkin: string; checkout: string; nights: number; price: number; currency: string };
 export type Confirmation = {
   destination: string;
@@ -141,7 +141,7 @@ export default function Booking({ trip, days, onBack, onBooked }: {
           .map((p, i) => ({ id: p.id, given_name: travelers[i]?.first || "Guest", family_name: travelers[i]?.last || "Traveller" }));
         const d = await (await fetch("/api/flights/order", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offerId: pickedFlight.id, amount: pickedFlight.price, currency: pickedFlight.currency, email: contactEmail, passengers: pax }) })).json();
         if (!d.ok) throw new Error("Flight booking failed. Please try again.");
-        flight = { ref: d.bookingReference, airline: pickedFlight.airline, from: pickedFlight.out.from, to: pickedFlight.out.to, depart: pickedFlight.out.depart, arrive: pickedFlight.out.arrive, roundTrip: !!pickedFlight.ret, price: num(pickedFlight.price), currency: pickedFlight.currency };
+        flight = { ref: d.bookingReference, airline: pickedFlight.airline, from: pickedFlight.out.from, to: pickedFlight.out.to, depart: pickedFlight.out.depart, arrive: pickedFlight.out.arrive, roundTrip: !!pickedFlight.ret, date: departDate, returnDate: pickedFlight.ret ? returnDate : null, cabin: "Economy", price: num(pickedFlight.price), currency: pickedFlight.currency };
       }
       if (pickedHotel) {
         const d = await (await fetch("/api/hotels/book", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offerId: pickedHotel.offerId, email: contactEmail, guests: travelers.map((t) => ({ firstName: t.first, lastName: t.last })) }) })).json();
@@ -167,8 +167,9 @@ export default function Booking({ trip, days, onBack, onBooked }: {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({
             email: contactEmail, destination: trip.destination, receiptUrl,
-            flight: flight ? { airline: flight.airline, route: `${flight.from} → ${flight.to}${flight.roundTrip ? " → " + flight.from : ""}`, times: `${flight.depart}–${flight.arrive}`, ref: flight.ref } : null,
-            hotel: hotel ? { name: hotel.name, nights: hotel.nights, id: hotel.id } : null,
+            passengers: conf.passengers,
+            flight: flight ? { airline: flight.airline, from: flight.from, to: flight.to, depart: flight.depart, arrive: flight.arrive, date: departDate, returnDate: flight.roundTrip ? returnDate : null, ref: flight.ref } : null,
+            hotel: hotel ? { name: hotel.name, checkin: hotel.checkin, checkout: hotel.checkout, nights: hotel.nights, id: hotel.id } : null,
             total: totalDisplay,
             flightDisplay: flight ? show(flight.price, flight.currency) : null,
             hotelDisplay: hotel ? show(hotel.price, hotel.currency) : null,
@@ -398,12 +399,24 @@ function BoardingPass({ f, passengers, show }: { f: FlightTicket; passengers: st
       <div className="relative border-t border-dashed border-[#15110c]/20">
         <span className="absolute -left-2 -top-2 size-4 rounded-full bg-[#faf7f2]" /><span className="absolute -right-2 -top-2 size-4 rounded-full bg-[#faf7f2]" />
       </div>
-      <div className="grid grid-cols-2 gap-3 px-6 py-4 text-sm">
+      <div className="grid grid-cols-3 gap-3 px-6 pb-2 pt-4 text-sm">
+        <div><div className="text-[11px] uppercase tracking-wide text-[#15110c]/45">Date</div><div className="font-medium">{fmtTicketDate(f.date)}{f.returnDate ? ` → ${fmtTicketDate(f.returnDate)}` : ""}</div></div>
+        <div><div className="text-[11px] uppercase tracking-wide text-[#15110c]/45">Cabin</div><div className="font-medium">{f.cabin || "Economy"}</div></div>
+        <div className="text-right"><div className="text-[11px] uppercase tracking-wide text-[#15110c]/45">Fare</div><div className="font-medium">{show(f.price, f.currency)}</div></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 px-6 pb-4 pt-2 text-sm">
         <div><div className="text-[11px] uppercase tracking-wide text-[#15110c]/45">Passenger{passengers.length > 1 ? "s" : ""}</div><div className="font-medium">{passengers.join(", ") || "Guest"}</div></div>
         <div className="text-right"><div className="text-[11px] uppercase tracking-wide text-[#15110c]/45">Booking reference</div><div className="font-mono text-base font-bold tracking-widest text-[#e8643c]">{f.ref}</div></div>
       </div>
     </div>
   );
+}
+
+function fmtTicketDate(d?: string | null): string {
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return d || "";
+  const [y, m, day] = d.split("-").map(Number);
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${day} ${MON[m - 1]} ${y}`;
 }
 
 function HotelVoucherCard({ h, guest, show }: { h: HotelVoucher; guest: string; show: (a: number, c: string) => string }) {

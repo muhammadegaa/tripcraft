@@ -67,12 +67,15 @@ export default function FlightPathHero() {
         {/* destination pin */}
         <circle cx="560" cy="250" r="5.5" fill="#e8643c" />
 
-        {/* the plane, centered on (0,0), pointing +x, moved along the arc */}
+        {/* the plane: a clean airliner silhouette, centered on (0,0), nose at +x,
+            moved along the arc with offset-rotate so the nose follows the curve */}
         <g>
-          <g transform="scale(1.15)">
-            <path d="M -11 -7 L 13 0 L -11 7 L -4 0 Z" fill="#15110c" />
-            <path d="M -11 7 L -4 0 L 13 0 Z" fill="#15110c" fillOpacity="0.55" />
-            <path d="M -4 0 L 13 0" stroke="#faf7f2" strokeWidth="0.8" strokeOpacity="0.5" />
+          <g transform="scale(1.05)">
+            <path
+              d="M 13 0 L 2 -1.3 L 1 -1.3 L -6 -9.5 L -7.2 -9.5 L -2 -1.6 L -8.5 -1.6 L -11 -4 L -12 -4 L -10.2 -1.2 L -11.5 0 L -10.2 1.2 L -12 4 L -11 4 L -8.5 1.6 L -2 1.6 L -7.2 9.5 L -6 9.5 L 1 1.3 L 2 1.3 Z"
+              fill="#15110c"
+            />
+            <circle cx="6" cy="0" r="1" fill="#faf7f2" fillOpacity="0.7" />
           </g>
           {!reduced ? (
             <>
