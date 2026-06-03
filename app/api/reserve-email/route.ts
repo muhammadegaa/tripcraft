@@ -1,22 +1,9 @@
-import { Resend } from "resend";
 import type { Day } from "@/lib/itinerary";
-import { captureError } from "@/lib/log";
+import { sendEmail } from "@/lib/email";
 
-// Emails the traveler their full plan plus real booking links. Server-side
-// (secret key). Graceful: with no RESEND_API_KEY it no-ops so the app never
-// breaks; with a key it actually delivers. To email arbitrary recipients you
-// need a verified domain in Resend and a matching RESEND_FROM (otherwise Resend
-// only delivers to your own account email).
-const FROM = process.env.RESEND_FROM || "Tripcraft <onboarding@resend.dev>";
-// Always-available Resend sender. Works with no verified domain but only
-// delivers to your own Resend account email. We fall back to it when the
-// custom domain in RESEND_FROM is not yet verified, so plans still arrive.
-const FALLBACK_FROM = "Tripcraft <onboarding@resend.dev>";
-
-function errMsg(e: unknown): string {
-  const o = e as { message?: string };
-  return o?.message ?? (typeof e === "string" ? e : JSON.stringify(e));
-}
+// Emails the traveler their full plan plus a deep link into the in-app booking.
+// Delivery goes through lib/email (Gmail SMTP -> Resend), so it works with no
+// custom domain.
 
 function esc(s: string) {
   return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] || c));
@@ -62,7 +49,6 @@ function buildHtml(destination: string, days: Day[], party: number, appUrl: stri
 }
 
 export async function POST(req: Request) {
-  const key = process.env.RESEND_API_KEY;
   let body: { email?: string; destination?: string; days?: Day[]; party?: number } = {};
   try {
     body = await req.json();
@@ -77,33 +63,10 @@ export async function POST(req: Request) {
     return Response.json({ sent: false, reason: "bad_email" }, { status: 400 });
   }
   if (!days.length) return Response.json({ sent: false, reason: "no_plan" }, { status: 400 });
-  if (!key) return Response.json({ sent: false, reason: "no_key" });
 
   const host = req.headers.get("host");
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || (host ? `https://${host}` : "");
-  const resend = new Resend(key);
   const html = buildHtml(destination, days, party, appUrl);
-  const subject = `Your ${destination} plan, ready to book`;
-
-  async function send(from: string) {
-    return resend.emails.send({ from, to: email, subject, html });
-  }
-
-  try {
-    let { error } = await send(FROM);
-    // If the custom domain isn't verified yet, retry from the always-available
-    // sender so the traveler still gets their plan.
-    if (error && FROM !== FALLBACK_FROM && /not verified|domain/i.test(errMsg(error))) {
-      captureError("reserve_email_domain_unverified", error, { from: FROM });
-      ({ error } = await send(FALLBACK_FROM));
-    }
-    if (error) {
-      captureError("reserve_email_failed", error, { destination });
-      return Response.json({ sent: false, reason: errMsg(error) });
-    }
-    return Response.json({ sent: true });
-  } catch (e) {
-    captureError("reserve_email_error", e, { destination });
-    return Response.json({ sent: false, reason: errMsg(e) });
-  }
+  const result = await sendEmail({ to: email, subject: `Your ${destination} plan, ready to book`, html });
+  return Response.json(result);
 }

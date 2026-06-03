@@ -1,17 +1,10 @@
-import { Resend } from "resend";
-import { captureError } from "@/lib/log";
+import { sendEmail } from "@/lib/email";
 
 // Booking confirmation email: a boarding-pass-style flight e-ticket and a hotel
 // voucher with the real booking references, plus the Stripe receipt link. Uses
-// table-based, inline-styled HTML for broad email-client support. Falls back to
-// onboarding@resend.dev when the custom domain isn't verified.
-const FROM = process.env.RESEND_FROM || "Tripcraft <onboarding@resend.dev>";
-const FALLBACK_FROM = "Tripcraft <onboarding@resend.dev>";
+// table-based, inline-styled HTML for broad email-client support. Delivery goes
+// through lib/email (Gmail SMTP -> Resend), so it works with no custom domain.
 
-function errMsg(e: unknown): string {
-  const o = e as { message?: string };
-  return o?.message ?? (typeof e === "string" ? e : JSON.stringify(e));
-}
 function esc(s: unknown) {
   return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] || c));
 }
@@ -91,7 +84,6 @@ function buildHtml(p: { destination: string; passengers: string[]; flight: Fligh
 }
 
 export async function POST(req: Request) {
-  const key = process.env.RESEND_API_KEY;
   let body: {
     email?: string; destination?: string; receiptUrl?: string | null; passengers?: string[];
     flight?: Flight; hotel?: Hotel; total?: string; flightDisplay?: string | null; hotelDisplay?: string | null;
@@ -102,29 +94,11 @@ export async function POST(req: Request) {
   const destination = body.destination || "your trip";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ sent: false, reason: "bad_email" }, { status: 400 });
   if (!body.flight && !body.hotel) return Response.json({ sent: false, reason: "nothing_booked" }, { status: 400 });
-  if (!key) return Response.json({ sent: false, reason: "no_key" });
 
   const html = buildHtml({
     destination, passengers: body.passengers ?? [], flight: body.flight ?? null, hotel: body.hotel ?? null,
     flightDisplay: body.flightDisplay ?? null, hotelDisplay: body.hotelDisplay ?? null, total: body.total || "", receiptUrl: body.receiptUrl ?? null,
   });
-  const subject = `Your ${destination} tickets are confirmed`;
-  const resend = new Resend(key);
-  const send = (from: string) => resend.emails.send({ from, to: email, subject, html });
-
-  try {
-    let { error } = await send(FROM);
-    if (error && FROM !== FALLBACK_FROM && /not verified|domain/i.test(errMsg(error))) {
-      captureError("booking_email_domain_unverified", error, { from: FROM });
-      ({ error } = await send(FALLBACK_FROM));
-    }
-    if (error) {
-      captureError("booking_email_failed", error, { destination });
-      return Response.json({ sent: false, reason: errMsg(error) });
-    }
-    return Response.json({ sent: true });
-  } catch (e) {
-    captureError("booking_email_error", e, { destination });
-    return Response.json({ sent: false, reason: errMsg(e) });
-  }
+  const result = await sendEmail({ to: email, subject: `Your ${destination} tickets are confirmed`, html });
+  return Response.json(result);
 }
