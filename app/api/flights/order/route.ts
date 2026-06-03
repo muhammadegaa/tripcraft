@@ -1,7 +1,28 @@
 // Creates a real Duffel order (the e-ticket) from a selected offer + passengers.
-// Sandbox uses the test balance for payment. Graceful: no token returns a demo
-// confirmation so the flow always completes.
+// Attaches a Duffel Customer User so Duffel can send the confirmation + support
+// emails to the traveller on your behalf (this also requires the account-level
+// "Duffel sends emails" setting, arranged with Duffel). Sandbox uses the test
+// balance; no token returns a demo confirmation so the flow always completes.
 type Pax = { id: string; given_name: string; family_name: string };
+
+const DUFFEL_HEADERS = (token: string) => ({
+  Authorization: `Bearer ${token}`, "Duffel-Version": "v2", "Content-Type": "application/json", Accept: "application/json",
+});
+
+// Creates (or no-ops to null on conflict/error) a Duffel Customer User. Attaching
+// it to the order is what lets Duffel email the traveller their confirmation.
+async function createCustomerUser(token: string, email: string, p: Pax, phone?: string): Promise<string | null> {
+  try {
+    const r = await fetch("https://api.duffel.com/identity/customer/users", {
+      method: "POST", headers: DUFFEL_HEADERS(token),
+      body: JSON.stringify({ data: { email, given_name: p.given_name || "Guest", family_name: p.family_name || "Traveller", phone_number: phone || "+6281234567890" } }),
+    });
+    const j = await r.json();
+    return j?.data?.id ?? null; // icu_...
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: Request) {
   let body: { offerId?: string; amount?: string; currency?: string; email?: string; phone?: string; passengers?: Pax[] } = {};
@@ -16,23 +37,29 @@ export async function POST(req: Request) {
   }
 
   try {
-    const pax = passengers.map((p) => ({
+    const contactEmail = email || "traveller@example.com";
+    // One customer user for the lead passenger so Duffel can email them.
+    const customerUserId = await createCustomerUser(token, contactEmail, passengers[0], phone);
+
+    const pax = passengers.map((p, i) => ({
       id: p.id,
       given_name: p.given_name,
       family_name: p.family_name,
       title: "mr",
       gender: "m",
       born_on: "1990-01-01",
-      email: email || "traveller@example.com",
+      email: contactEmail,
       phone_number: phone || "+6281234567890",
+      ...(i === 0 && customerUserId ? { user_id: customerUserId } : {}),
     }));
     const res = await fetch("https://api.duffel.com/air/orders", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Duffel-Version": "v2", "Content-Type": "application/json", Accept: "application/json" },
+      headers: DUFFEL_HEADERS(token),
       body: JSON.stringify({
         data: {
           type: "instant",
           selected_offers: [offerId],
+          ...(customerUserId ? { users: [customerUserId] } : {}),
           passengers: pax,
           payments: [{ type: "balance", currency: currency || "GBP", amount: amount || "0" }],
         },
