@@ -21,7 +21,7 @@ export type Attachment = { filename: string; content: Buffer };
 
 export async function sendEmail({ to, subject, html, attachments }: { to: string; subject: string; html: string; attachments?: Attachment[] }): Promise<SendResult> {
   const gUser = process.env.GMAIL_USER;
-  const gPass = process.env.GMAIL_APP_PASSWORD;
+  const gPass = process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD;
 
   // 1) Gmail SMTP — works for any recipient, no domain needed.
   if (gUser && gPass) {
