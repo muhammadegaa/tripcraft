@@ -17,8 +17,9 @@ function errMsg(e: unknown): string {
 }
 
 export type SendResult = { sent: boolean; via?: string; reason?: string };
+export type Attachment = { filename: string; content: Buffer };
 
-export async function sendEmail({ to, subject, html }: { to: string; subject: string; html: string }): Promise<SendResult> {
+export async function sendEmail({ to, subject, html, attachments }: { to: string; subject: string; html: string; attachments?: Attachment[] }): Promise<SendResult> {
   const gUser = process.env.GMAIL_USER;
   const gPass = process.env.GMAIL_APP_PASSWORD;
 
@@ -31,7 +32,7 @@ export async function sendEmail({ to, subject, html }: { to: string; subject: st
         secure: true,
         auth: { user: gUser, pass: gPass.replace(/\s+/g, "") },
       });
-      await transport.sendMail({ from: `Tripcraft <${gUser}>`, to, subject, html });
+      await transport.sendMail({ from: `Tripcraft <${gUser}>`, to, subject, html, attachments });
       return { sent: true, via: "gmail" };
     } catch (e) {
       captureError("email_gmail_failed", e);
@@ -45,9 +46,9 @@ export async function sendEmail({ to, subject, html }: { to: string; subject: st
     const from = process.env.RESEND_FROM || ONBOARDING;
     const resend = new Resend(key);
     try {
-      let { error } = await resend.emails.send({ from, to, subject, html });
+      let { error } = await resend.emails.send({ from, to, subject, html, attachments });
       if (error && from !== ONBOARDING && /not verified|domain/i.test(errMsg(error))) {
-        ({ error } = await resend.emails.send({ from: ONBOARDING, to, subject, html }));
+        ({ error } = await resend.emails.send({ from: ONBOARDING, to, subject, html, attachments }));
       }
       if (error) { captureError("email_resend_failed", error); return { sent: false, via: "resend", reason: errMsg(error) }; }
       return { sent: true, via: "resend" };

@@ -105,6 +105,28 @@ test.describe("api", () => {
     expect(typeof d.bookingId).toBe("string");
   });
 
+  test("POST /api/eticket returns a real PDF e-ticket", async ({ request }) => {
+    const r = await request.post("/api/eticket", {
+      data: {
+        destination: "Tokyo",
+        passengers: ["Ega S"],
+        flight: { ref: "TC9K2LM", airline: "ANA", from: "CGK", to: "HND", depart: "06:15", arrive: "15:40", date: "2026-07-04", returnDate: "2026-07-11" },
+        hotel: { id: "HX7P31Q", name: "Hotel Niwa Tokyo", checkin: "2026-07-04", checkout: "2026-07-11", nights: 7 },
+        flightDisplay: "$520", hotelDisplay: "$780", total: "$1,300",
+      },
+    });
+    expect(r.ok()).toBeTruthy();
+    expect(r.headers()["content-type"]).toContain("application/pdf");
+    const body = await r.body();
+    expect(body.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(body.length).toBeGreaterThan(1000);
+  });
+
+  test("POST /api/eticket rejects an empty booking", async ({ request }) => {
+    const r = await request.post("/api/eticket", { data: { destination: "Tokyo", passengers: [] } });
+    expect(r.status()).toBe(400);
+  });
+
   test("email routes reject bad input without sending", async ({ request }) => {
     const b = await request.post("/api/booking-email", { data: { email: "not-an-email", flight: { ref: "X", airline: "Y", route: "A-B", times: "1-2" } } });
     expect(b.status()).toBe(400);

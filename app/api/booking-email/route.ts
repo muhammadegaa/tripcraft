@@ -1,9 +1,12 @@
 import { sendEmail } from "@/lib/email";
+import { buildTicketPdf } from "@/lib/eticket";
 
 // Booking confirmation email: a boarding-pass-style flight e-ticket and a hotel
-// voucher with the real booking references, plus the Stripe receipt link. Uses
-// table-based, inline-styled HTML for broad email-client support. Delivery goes
-// through lib/email (Gmail SMTP -> Resend), so it works with no custom domain.
+// voucher with the real booking references, plus the Stripe receipt link — and
+// the actual e-ticket/voucher document attached as a PDF, the way every OTA
+// issues its own documents in production. Uses table-based, inline-styled HTML
+// for broad email-client support. Delivery goes through lib/email
+// (Gmail SMTP -> Resend), so it works with no custom domain.
 
 function esc(s: unknown) {
   return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] || c));
@@ -72,7 +75,7 @@ function buildHtml(p: { destination: string; passengers: string[]; flight: Fligh
         <div style="display:inline-block;background:#1f9d6b;color:#fff;width:34px;height:34px;border-radius:50%;line-height:34px;font-size:18px">&#10003;</div>
         <div style="margin-top:8px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#888">Test booking · demo of the live flow</div>
         <h1 style="margin:8px 0 4px;font-size:24px">You are going to ${esc(p.destination)}</h1>
-        <p style="color:#777;margin:0;font-size:14px">Your tickets are below. Keep the booking references handy.</p>
+        <p style="color:#777;margin:0;font-size:14px">Your e-ticket is attached as a PDF. Keep the booking references handy.</p>
       </div>
       ${p.flight ? boardingPass(p.flight, p.passengers, p.flightDisplay) : ""}
       ${p.hotel ? voucher(p.hotel, guest, p.hotelDisplay) : ""}
@@ -99,6 +102,14 @@ export async function POST(req: Request) {
     destination, passengers: body.passengers ?? [], flight: body.flight ?? null, hotel: body.hotel ?? null,
     flightDisplay: body.flightDisplay ?? null, hotelDisplay: body.hotelDisplay ?? null, total: body.total || "", receiptUrl: body.receiptUrl ?? null,
   });
-  const result = await sendEmail({ to: email, subject: `Your ${destination} tickets are confirmed`, html });
+  const pdf = await buildTicketPdf({
+    destination, passengers: body.passengers ?? [], flight: body.flight ?? null, hotel: body.hotel ?? null,
+    flightDisplay: body.flightDisplay ?? null, hotelDisplay: body.hotelDisplay ?? null, total: body.total ?? null,
+  });
+  const ref = body.flight?.ref || body.hotel?.id || "tickets";
+  const result = await sendEmail({
+    to: email, subject: `Your ${destination} tickets are confirmed`, html,
+    attachments: [{ filename: `tripcraft-eticket-${ref}.pdf`, content: Buffer.from(pdf) }],
+  });
   return Response.json(result);
 }

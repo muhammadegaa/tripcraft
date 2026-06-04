@@ -8,7 +8,7 @@ import { useGallery } from "@/app/Lightbox";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { convert, formatMoney } from "@/lib/currency";
-import { Plane, Hotel, ArrowRight, Check, ShieldCheck, User, Ticket, Images, Star, MapPin, Calendar } from "lucide-react";
+import { Plane, Hotel, ArrowRight, Check, ShieldCheck, User, Ticket, Images, Star, MapPin, Calendar, Download } from "lucide-react";
 
 const STRIPE_PK = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
@@ -350,6 +350,35 @@ export default function Booking({ trip, days, onBack, onBooked }: {
 
 /* ── Tickets view (reused from My Trips) ── */
 export function Tickets({ conf, show, onBack }: { conf: Confirmation; show: (a: number, f: string) => string; onBack: () => void }) {
+  const [downloading, setDownloading] = useState(false);
+  async function downloadPdf() {
+    setDownloading(true);
+    try {
+      const res = await fetch("/api/eticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: conf.destination,
+          passengers: conf.passengers,
+          flight: conf.flight,
+          hotel: conf.hotel,
+          flightDisplay: conf.flight ? show(conf.flight.price, conf.flight.currency) : null,
+          hotelDisplay: conf.hotel ? show(conf.hotel.price, conf.hotel.currency) : null,
+          total: conf.totalDisplay,
+        }),
+      });
+      if (!res.ok) throw new Error("pdf failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tripcraft-eticket-${conf.flight?.ref || conf.hotel?.id || "tickets"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }
   return (
     <section className="mx-auto max-w-xl px-6 pb-24 pt-10 animate-fade">
       <div className="text-center">
@@ -370,6 +399,9 @@ export function Tickets({ conf, show, onBack }: { conf: Confirmation; show: (a: 
             <span className="text-lg font-semibold">{conf.totalDisplay}</span>
           </div>
         )}
+        <button onClick={downloadPdf} disabled={downloading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#15110c] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#e8643c] disabled:opacity-60">
+          <Download strokeWidth={1.75} className="size-4" /> {downloading ? "Preparing your e-ticket…" : "Download e-ticket (PDF)"}
+        </button>
         {conf.receiptUrl && (
           <a href={conf.receiptUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 rounded-xl border border-[#15110c]/15 bg-white px-5 py-3 text-sm font-semibold text-[#15110c] transition hover:border-[#e8643c] hover:text-[#e8643c]">
             <Ticket strokeWidth={1.75} className="size-4" /> View your Stripe receipt

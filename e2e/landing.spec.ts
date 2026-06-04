@@ -47,9 +47,15 @@ test.describe("landing page", () => {
   });
 
   test("no console errors on load", async ({ page }) => {
+    // Vercel Analytics' script is only served on Vercel, so it 404s under
+    // local `next start`. Track failed responses by URL (console errors don't
+    // carry the URL) and allow only that one.
     const errors: string[] = [];
+    const failed: string[] = [];
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    page.on("response", (r) => { if (r.status() >= 400 && !r.url().includes("/_vercel/")) failed.push(`${r.status()} ${r.url()}`); });
     await page.goto("/", { waitUntil: "networkidle" });
-    expect(errors.join("\n")).toBe("");
+    expect(failed.join("\n")).toBe("");
+    expect(errors.filter((e) => !/Failed to load resource/.test(e)).join("\n")).toBe("");
   });
 });
